@@ -195,15 +195,16 @@ authenticating(internal, #mqtt_connect{protocol_level = Level} = Connect, Data) 
                             callback_state = CallbackState1,
                             exit_timer = start_timer(1.5 * KeepAlive, exit)
                         }))};
-        {stop, Reason} ->
-            Code = case Reason of
-                identifier_rejected -> 2;
-                server_unavailable -> 3;
-                bad_username_or_password -> 4;
-                not_authorized -> 5;
-                Other when is_integer(Other), Other > 5 -> Other
-            end,
-            {stop, normal, send(#mqtt_connack{return_code = Code}, Data)}
+        {stop, identifier_rejected} ->
+            {stop, normal, send(#mqtt_connack{return_code = 2}, Data)};
+        {stop, server_unavailable} ->
+            {stop, normal, send(#mqtt_connack{return_code = 3}, Data)};
+        {stop, bad_username_or_password} ->
+            {stop, normal, send(#mqtt_connack{return_code = 4}, Data)};
+        {stop, not_authorized} ->
+            {stop, normal, send(#mqtt_connack{return_code = 5}, Data)};
+        {stop, _} ->
+            {stop, normal, Data}
     end;
 
 authenticating(internal, #mqtt_connect{protocol_level = _}, Data) ->
