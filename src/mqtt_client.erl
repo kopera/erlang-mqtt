@@ -429,18 +429,21 @@ handle_disconnect(Error, #disconnected{} = Data) ->
             Stop
     end.
 
-handle_suback([{Topic, Ack} | Rest], #connected{} = Data) ->
+handle_suback(Acks, Data) ->
+    handle_suback(Acks, [], Data).
+
+handle_suback([{Topic, Ack} | Rest], ActionsAcc, #connected{} = Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
     case Callback:handle_subscribe_result(Topic, Ack, CallbackState) of
         {ok, CallbackState1} ->
-            handle_suback(Rest, Data#connected{callback_state = CallbackState1});
+            handle_suback(Rest, ActionsAcc, Data#connected{callback_state = CallbackState1});
         {ok, CallbackState1, Actions} ->
-            handle_suback(Rest, handle_actions(Actions, Data#connected{callback_state = CallbackState1}));
+            handle_suback(Rest, [Actions | ActionsAcc], Data#connected{callback_state = CallbackState1});
         {stop, Reason} ->
             {stop, Reason}
     end;
-handle_suback([], #connected{} = Data) ->
-    {keep_state, Data}.
+handle_suback([], ActionsAcc, #connected{} = Data) ->
+    {keep_state, handle_actions(lists:reverse(ActionsAcc), Data)}.
 
 handle_callback_result(Result, #connected{} = Data) ->
     case Result of
