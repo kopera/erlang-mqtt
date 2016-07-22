@@ -460,7 +460,7 @@ handle_callback_result(Result, #connected{} = Data) ->
 
 handle_actions(Actions, #connected{} = Data) when is_list(Actions) ->
     lists:foldl(fun handle_actions/2, Data, Actions);
-handle_actions({reply, From, Reply}, #connected{} = Data) ->
+handle_actions({reply, From, Reply}, Data) ->
     gen_statem:reply(From, Reply),
     Data;
 handle_actions({publish, Topic, Message}, #connected{} = Data) ->
