@@ -75,7 +75,7 @@
     client_id :: iodata(),
     clean_session :: boolean(),
     last_will :: undefined | #mqtt_last_will{},
-    keep_alive :: pos_integer()
+    keep_alive :: non_neg_integer()
 }).
 
 %% Data records
@@ -102,6 +102,7 @@
 -spec start_link(module(), any(), start_options()) -> {ok, pid()}.
 -type start_options() :: #{
     transport => {tcp, map()} | {ssl, map()},
+    keep_alive => non_neg_integer(),
     protocol => iodata(),
     username => iodata(),
     password => iodata(),
@@ -149,7 +150,7 @@ start_options_transport(KeepAlive, {Type, Opts}) ->
     end),
     ConnectTimeout = maps:get(connect_timeout, Opts, 15000),
     TransportOpts = [
-        {send_timeout, case KeepAlive of 0 -> infinity; _ -> timer:seconds(KeepAlive) end},
+        {send_timeout, case KeepAlive of 0 -> infinity; _ -> KeepAlive * 1000 end},
         {send_timeout_close, true} |
         maps:to_list(maps:without([host, port, connect_timeout], Opts))
     ],
@@ -486,8 +487,6 @@ handle_action_publish(_Topic, _Message, _QoS, _Retain, _Data) ->
     %% TODO: handle QoS 1 & 2
     exit(not_implemented).
 
-handle_action_subscribe([], Data) ->
-    Data;
 handle_action_subscribe(Topics, Data) ->
     #connected{next_id = Id, pending_subscriptions = Pending} = Data,
     send(#mqtt_subscribe{
@@ -498,8 +497,6 @@ handle_action_subscribe(Topics, Data) ->
         pending_subscriptions = maps:put(Id, [Topic || {Topic, _Qos} <- Topics], Pending)
     }).
 
-handle_action_unsubscribe([], Data) ->
-    Data;
 handle_action_unsubscribe(Topics, Data) ->
     #connected{next_id = Id} = Data,
     send(#mqtt_unsubscribe{
@@ -518,18 +515,18 @@ send(Packet, Data) ->
 start_keep_alive_timer(0) ->
     undefined;
 start_keep_alive_timer(Secs) ->
-    Ref = erlang:start_timer(timer:seconds(Secs), self(), keep_alive),
+    Ref = erlang:start_timer(trunc(Secs * 1000), self(), keep_alive),
     {Secs, Ref}.
 
 restart_keep_alive_timer(undefined) ->
     undefined;
 restart_keep_alive_timer({Secs, Ref}) ->
-    erlang:cancel_timer(Ref, [{async, true}]),
+    erlang:cancel_timer(Ref),
     start_keep_alive_timer(Secs).
 
-start_reconnect_timer(Secs) ->
-    erlang:start_timer(timer:seconds(Secs), self(), reconnect).
+start_reconnect_timer(Millisecs) ->
+    erlang:start_timer(Millisecs, self(), reconnect).
 
 backoff(Failures, Min, Max) ->
-    Interval = trunc(math:pow(2, Failures)),
+    Interval = 1000 * trunc(math:pow(2, Failures)),
     max(Min, min((rand:uniform(Interval) - 1), Max)).
