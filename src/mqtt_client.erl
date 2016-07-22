@@ -107,7 +107,12 @@
     password => iodata(),
     client_id => iodata(),
     clean_session => boolean(),
-    last_will => {Topic :: iodata(), Message :: iodata(), mqtt_packet:qos()}
+    last_will => #{
+        topic := iodata(),
+        message := iodata(),
+        qos => mqtt_packet:qos(),
+        retain => boolean()
+    }
 }.
 start_link(Module, Args, Opts) ->
     gen_statem:start_link(?MODULE, [Module, Args, start_options(Opts)], []).
@@ -128,8 +133,10 @@ start_options(Opts) ->
         last_will = case maps:get(last_will, Opts, undefined) of
             undefined ->
                 undefined;
-            {T, M, QoS, Retain} ->
-                #mqtt_last_will{topic = T, message = M, qos = QoS, retain = Retain}
+            #{topic := Topic, message := Message} = LastWill ->
+                QoS = maps:get(qos, LastWill, 0),
+                Retain = maps:get(retain, LastWill, false),
+                #mqtt_last_will{topic = Topic, message = Message, qos = QoS, retain = Retain}
         end,
         keep_alive = KeepAlive
     }.
