@@ -53,7 +53,7 @@
     | {stop, Reason :: term()}.
 -callback terminate(normal | shutdown | {shutdown, term()} | term(), State :: any()) ->
     any().
--callback code_change(OldVsn :: term() | {'down', term()}, OldState :: any(), Extra :: term()) ->
+-callback code_change(OldVsn :: term() | {down, term()}, OldState :: any(), Extra :: term()) ->
       {ok, NewState :: any()}
     | term().
 
@@ -309,7 +309,6 @@ disconnected(EventType, EventContent, Data) ->
 
 authenticating(internal, #mqtt_connack{return_code = 0, session_present = Present}, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
-    %% TODO: start keepalive timer
     case Callback:handle_connect(Present, CallbackState) of
         {ok, CallbackState1} ->
             {next_state, connected, Data#connected{callback_state = CallbackState1}};
@@ -481,7 +480,7 @@ handle_action_publish(Topic, Message, 0, Retain, Data) ->
         message = Message
     }, Data);
 handle_action_publish(_Topic, _Message, _QoS, _Retain, _Data) ->
-    %% TODO: implement
+    %% TODO: handle QoS 1 & 2
     exit(not_implemented).
 
 handle_action_subscribe([], Data) ->
