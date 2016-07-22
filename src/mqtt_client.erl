@@ -312,7 +312,7 @@ authenticating(internal, #mqtt_connack{return_code = 0, session_present = Presen
     case Callback:handle_connect(Present, CallbackState) of
         {ok, CallbackState1} ->
             {next_state, connected, Data#connected{callback_state = CallbackState1}};
-        {ok, Actions, CallbackState1} ->
+        {ok, CallbackState1, Actions} ->
             {next_state, connected, handle_actions(Actions, Data#connected{callback_state = CallbackState1})};
         {stop, Reason} ->
             {stop, Reason}
