@@ -195,6 +195,8 @@ authenticating(internal, #mqtt_connect{protocol_level = Level} = Connect, Data) 
                             callback_state = CallbackState1,
                             exit_timer = start_timer(1.5 * KeepAlive, exit)
                         }))};
+        {stop, unacceptable_protocol} ->
+            {stop, normal, send(#mqtt_connack{return_code = 1}, Data)};
         {stop, identifier_rejected} ->
             {stop, normal, send(#mqtt_connack{return_code = 2}, Data)};
         {stop, server_unavailable} ->
