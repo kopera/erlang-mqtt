@@ -1,5 +1,6 @@
 -module(mqtt_transport).
 -export([
+    new/2,
     open/4,
     open/5,
     send/2,
@@ -31,6 +32,12 @@
 -type tcp_options() :: [gen_tcp:option()].
 -type ssl_options() :: [ssl:connect_option()].
 
+
+-spec new(tcp | ssl, port() | ssl:sslsocket()) -> transport().
+new(tcp, Socket) when is_port(Socket) ->
+    #tcp{socket = Socket};
+new(ssl, Socket) ->
+    #ssl{socket = Socket}.
 
 -spec open(tcp | ssl, host(), port_number(), tcp_options() | ssl_options()) -> {ok, transport()} | {error, term()}.
 open(Type, Host, Port, Options) ->
