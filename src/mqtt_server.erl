@@ -6,6 +6,7 @@
 -behaviour(gen_statem).
 -export([
     init/1,
+    callback_mode/0,
     handle_event/4,
     code_change/4,
     terminate/3
@@ -83,7 +84,7 @@
 -spec enter_loop(module(), any(), emqtt_transport:transport()) -> no_return().
 enter_loop(Module, Args, Transport) ->
     ok = mqtt_transport:set_opts(Transport, [{active, once}]),
-    gen_statem:enter_loop(?MODULE, [], handle_event_function, authenticating, #data{
+    gen_statem:enter_loop(?MODULE, [], authenticating, #data{
         callback = Module,
         callback_state = Args,
         transport = Transport,
@@ -96,6 +97,10 @@ enter_loop(Module, Args, Transport) ->
 %% @hidden
 init(_) ->
     exit(unexpected_call_to_init).
+
+%% @hidden
+callback_mode() ->
+    handle_event_function.
 
 %% @hidden
 handle_event(info, {DataTag, Source, Incoming}, State, #data{transport_tags = {DataTag, _, _, Source}} = Data) ->
@@ -149,7 +154,7 @@ code_change(Vsn, State, #data{} = Data, Extra) ->
     #data{callback = Callback, callback_state = CallbackState} = Data,
     case Callback:code_change(Vsn, CallbackState, Extra) of
         {ok, CallbackState1} ->
-            {handle_event_function, State, Data#data{callback_state = CallbackState1}};
+            {ok, State, Data#data{callback_state = CallbackState1}};
         Other ->
             Other
     end.

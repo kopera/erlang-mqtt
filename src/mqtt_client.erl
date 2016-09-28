@@ -12,6 +12,7 @@
 -behaviour(gen_statem).
 -export([
     init/1,
+    callback_mode/0,
     handle_event/4,
     code_change/4,
     terminate/3
@@ -182,7 +183,7 @@ call(Ref, Request, Timeout) ->
 init([Callback, Args, #options{} = Options]) ->
     case Callback:init(Args) of
         {ok, State} ->
-            {handle_event_function, disconnected, #disconnected{
+            {ok, disconnected, #disconnected{
                 options = Options,
                 callback = Callback,
                 callback_state = State
@@ -190,6 +191,10 @@ init([Callback, Args, #options{} = Options]) ->
         Other ->
             Other
     end.
+
+%% @hidden
+callback_mode() ->
+    handle_event_function.
 
 %% @hidden
 handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}} = Connected) ->
@@ -241,7 +246,7 @@ code_change(Vsn, State, #disconnected{} = Data, Extra) ->
     #disconnected{callback = Callback, callback_state = CallbackState} = Data,
     case Callback:code_change(Vsn, CallbackState, Extra) of
         {ok, CallbackState1} ->
-            {handle_event_function, State, Data#disconnected{callback_state = CallbackState1}};
+            {ok, State, Data#disconnected{callback_state = CallbackState1}};
         Other ->
             Other
     end;
@@ -249,7 +254,7 @@ code_change(Vsn, State, #connected{} = Data, Extra) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
     case Callback:code_change(Vsn, CallbackState, Extra) of
         {ok, CallbackState1} ->
-            {handle_event_function, State, Data#connected{callback_state = CallbackState1}};
+            {ok, State, Data#connected{callback_state = CallbackState1}};
         Other ->
             Other
     end.
