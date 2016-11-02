@@ -8,6 +8,9 @@
     call/2,
     call/3
 ]).
+-export_type([
+    action/0
+]).
 
 -behaviour(gen_statem).
 -export([
@@ -63,6 +66,7 @@
     | {publish, Topic :: iodata(), Message :: iodata(), #{qos => mqtt_packet:qos(), retain => boolean()}}
     | {subscribe, Topic :: iodata()}
     | {subscribe, Topic :: iodata(), #{qos => mqtt_packet:qos()}}
+    | {unsubscribe, Topic :: iodata()}
     | {reply, gen_statem:from(), term()}.
 
 -include("../include/mqtt_packet.hrl").
