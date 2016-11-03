@@ -334,6 +334,9 @@ authenticating(internal, #mqtt_connack{return_code = Code}, Data) ->
 authenticating({call, _}, _, Data) ->
     {keep_state, Data, postpone};
 
+authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {_, Ref}} = Data) ->
+    {keep_state, send(#mqtt_pingreq{}, Data)};
+
 authenticating(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -368,6 +371,9 @@ connected(cast, Cast, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
     handle_callback_result(Callback:handle_cast(Cast, CallbackState), Data);
 
+connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {_, Ref}} = Data) ->
+    {keep_state, send(#mqtt_pingreq{}, Data)};
+
 connected(info, Info, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
     handle_callback_result(Callback:handle_info(Info, CallbackState), Data);
@@ -378,14 +384,11 @@ connected(EventType, EventContent, Data) ->
 
 %% Extra handlers
 
-handle_event(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {_, Ref}} = Data) ->
-    {keep_state, send(#mqtt_pingreq{}, Data)};
+handle_event(internal, #mqtt_pingresp{}, _Data) ->
+    keep_state_and_data;
 
-handle_event(internal, #mqtt_pingresp{}, Data) ->
-    {keep_state, Data};
-
-handle_event(_, _, Data) ->
-    {keep_state, Data}.
+handle_event(_, _, _Data) ->
+    keep_state_and_data.
 
 handle_connect_error(Code, Data) ->
     #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport} = Data,
