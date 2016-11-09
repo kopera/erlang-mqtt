@@ -521,8 +521,12 @@ handle_action_unsubscribe(Topics, Data) ->
 
 send(Packet, Data) ->
     #connected{transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
-    ok = mqtt_transport:send(Transport, mqtt_packet:encode(Packet)),
-    Data#connected{keep_alive_timer = restart_keep_alive_timer(KeepAliveTimer)}.
+    case mqtt_transport:send(Transport, mqtt_packet:encode(Packet)) of
+        ok ->
+            Data#connected{keep_alive_timer = restart_keep_alive_timer(KeepAliveTimer)};
+        Error ->
+            throw(handle_disconnect(Error, Data))
+    end.
 
 start_keep_alive_timer(0) ->
     undefined;

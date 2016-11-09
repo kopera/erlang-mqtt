@@ -352,8 +352,10 @@ callback_result({stop, Reason}) ->
 
 send(Packet, Data) ->
     #data{transport = Transport} = Data,
-    ok = mqtt_transport:send(Transport, mqtt_packet:encode(Packet)),
-    Data.
+    case mqtt_transport:send(Transport, mqtt_packet:encode(Packet)) of
+        ok -> Data;
+        _ -> throw({stop, normal, Data})
+    end.
 
 start_timer(0, _Tag) ->
     undefined;
