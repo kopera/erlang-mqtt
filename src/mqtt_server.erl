@@ -1,6 +1,8 @@
 -module(mqtt_server).
 -export([
-    enter_loop/3
+    enter_loop/3,
+    stop/1,
+    stop/3
 ]).
 
 -behaviour(gen_statem).
@@ -92,6 +94,14 @@ enter_loop(Module, Args, Transport) ->
         buffer = <<>>,
         exit_timer = start_timer(?connect_timeout, exit)
     }).
+
+-spec stop(pid()) -> ok.
+stop(Pid) ->
+    gen_statem:stop(Pid).
+
+-spec stop(pid(), term(), timeout()) -> ok.
+stop(Pid, Reason, Timeout) ->
+    gen_statem:stop(Pid, Reason, Timeout).
 
 
 %% @hidden
@@ -254,6 +264,7 @@ connected(cast, Cast, Data) ->
     callback(handle_cast, [Cast], Data);
 
 connected(info, {timeout, Ref, exit}, #data{exit_timer = {_, _, Ref}}) ->
+    error_logger:warning_msg("Terminating client: ~p due to inactivity~n", [self()]),
     {stop, normal};
 
 connected(info, Info, Data) ->
