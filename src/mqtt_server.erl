@@ -71,14 +71,14 @@
     | {reply, gen_statem:from(), term()}.
 
 -include("../include/mqtt_packet.hrl").
--define(connect_timeout, 5). % seconds
+-define(connect_timeout, 5000).
 -record(data, {
     callback :: module(),
     callback_state :: any(),
     transport :: emqtt_transport:transport(),
     transport_tags :: emqtt_transport:tags(),
     buffer = <<>> :: binary(),
-    exit_timer = undefined :: {Secs :: pos_integer(), Tag :: term(), reference()} | undefined
+    exit_timer = undefined :: {MilliSecs :: pos_integer(), Tag :: term(), reference()} | undefined
 }).
 
 -spec enter_loop(module(), any(), emqtt_transport:transport()) -> no_return().
@@ -198,7 +198,7 @@ authenticating(internal, #mqtt_connect{protocol_level = Level} = Connect, Data) 
                     send(#mqtt_connack{return_code = 0},
                         Data#data{
                             callback_state = CallbackState1,
-                            exit_timer = start_timer(1.5 * KeepAlive, exit)
+                            exit_timer = start_timer(trunc(1000 * 1.5 * KeepAlive), exit)
                         }))};
         {stop, unacceptable_protocol} ->
             {stop, normal, send(#mqtt_connack{return_code = 1}, Data)};
@@ -217,14 +217,20 @@ authenticating(internal, #mqtt_connect{protocol_level = Level} = Connect, Data) 
 authenticating(internal, #mqtt_connect{protocol_level = _}, Data) ->
     {stop, normal, send(#mqtt_connack{return_code = 1}, Data)};
 
+authenticating(internal, #mqtt_pingreq{}, Data) ->
+    {keep_state, send(#mqtt_pingresp{}, Data)};
+
 authenticating({call, _}, _, Data) ->
     {keep_state, Data, postpone};
 
 authenticating(cast, _, Data) ->
     {keep_state, Data, postpone};
 
-authenticating(EventType, EventContent, Data) ->
-    handle_event(EventType, EventContent, Data).
+authenticating(info, {timeout, Ref, exit}, #data{exit_timer = {_, _, Ref}}) ->
+    {stop, normal};
+
+authenticating(_EventType, _EventContent, Data) ->
+    {keep_state, Data}.
 
 
 %%%% Connected
@@ -238,29 +244,25 @@ connected(internal, #mqtt_subscribe{packet_id = Id, topics = Topics}, Data) ->
 connected(internal, #mqtt_unsubscribe{packet_id = Id, topics = Topics}, Data) ->
     handle_unsubscribe(Id, Topics, Data);
 
+connected(internal, #mqtt_pingreq{}, Data) ->
+    {keep_state, send(#mqtt_pingresp{}, Data)};
+
 connected({call, Call}, From, Data) ->
     callback(handle_call, [Call, From], Data);
 
 connected(cast, Cast, Data) ->
     callback(handle_cast, [Cast], Data);
 
+connected(info, {timeout, Ref, exit}, #data{exit_timer = {_, _, Ref}}) ->
+    {stop, normal};
+
 connected(info, Info, Data) ->
     callback(handle_info, [Info], Data);
 
-connected(EventType, EventContent, Data) ->
-    handle_event(EventType, EventContent, Data).
-
+connected(_EventType, _EventContent, Data) ->
+    {keep_state, Data}.
 
 %% Extra handlers
-
-handle_event(internal, #mqtt_pingreq{}, Data) ->
-    {keep_state, send(#mqtt_pingresp{}, Data)};
-
-handle_event(info, {timeout, Ref, exit}, #data{exit_timer = {_, _, Ref}}) ->
-    {stop, normal};
-
-handle_event(_, _, Data) ->
-    {keep_state, Data}.
 
 handle_publish(_Id, Topic, Message, #{qos := 0} = Opts, #data{} = Data) ->
     #data{callback = Callback, callback_state = CallbackState} = Data,
@@ -359,9 +361,9 @@ send(Packet, Data) ->
 
 start_timer(0, _Tag) ->
     undefined;
-start_timer(Secs, Tag) ->
-    Ref = erlang:start_timer(trunc(Secs * 1000), self(), Tag),
-    {Secs, Tag, Ref}.
+start_timer(MilliSecs, Tag) ->
+    Ref = erlang:start_timer(MilliSecs, self(), Tag),
+    {MilliSecs, Tag, Ref}.
 
 stop_timer(undefined) ->
     undefined;
@@ -371,6 +373,6 @@ stop_timer({_, _, Ref}) ->
 
 restart_timer(undefined) ->
     undefined;
-restart_timer({Secs, Tag, Ref}) ->
+restart_timer({MilliSecs, Tag, Ref}) ->
     erlang:cancel_timer(Ref),
-    start_timer(Secs, Tag).
+    start_timer(MilliSecs, Tag).
