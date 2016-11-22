@@ -89,7 +89,7 @@
     callback :: module(),
     callback_state :: any(),
     failures = 0 :: non_neg_integer(),
-    reconnect_timer = undefined :: reference() | undefined
+    reconnect_timer = undefined :: timer(reconnect) | undefined
 }).
 
 -record(connected, {
@@ -99,7 +99,7 @@
     transport :: mqtt_transport:transport(),
     transport_tags :: mqtt_transport:tags(),
     buffer = <<>> :: binary(),
-    keep_alive_timer = undefined :: {KeepAlive :: pos_integer(), reference()} | undefined,
+    keep_alive_timer = undefined :: timer(keep_alive) | undefined,
     next_id = 0 :: mqtt_packet:packet_id(),
     pending_subscriptions = #{} :: #{mqtt_packet:packet_id() => [Topic :: iodata()]}
 }).
@@ -300,13 +300,18 @@ disconnected(internal, connect, Data) ->
                 callback_state = CallbackState,
                 transport = Transport,
                 transport_tags =  mqtt_transport:get_tags(Transport),
-                keep_alive_timer = start_keep_alive_timer(KeepAlive)
+                keep_alive_timer = if
+                    KeepAlive > 0 ->
+                        start_timer(KeepAlive * 1000, keep_alive);
+                    KeepAlive =:= 0 ->
+                        undefined
+                end
             })};
         {error, Error} ->
             handle_disconnect(Error, Data)
     end;
 
-disconnected(info, {timeout, Ref, reconnect}, #disconnected{reconnect_timer = Ref} = Data) ->
+disconnected(info, {timeout, Ref, reconnect}, #disconnected{reconnect_timer = {timer, Ref, reconnect, _}} = Data) ->
     {keep_state, Data#disconnected{reconnect_timer = undefined}, {next_event, internal, connect}};
 
 disconnected({call, From}, _, Data) ->
@@ -334,7 +339,7 @@ authenticating(internal, #mqtt_connack{return_code = Code}, Data) ->
 authenticating({call, _}, _, Data) ->
     {keep_state, Data, postpone};
 
-authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {_, Ref}} = Data) ->
+authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
 authenticating(EventType, EventContent, Data) ->
@@ -371,7 +376,7 @@ connected(cast, Cast, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
     handle_callback_result(Callback:handle_cast(Cast, CallbackState), Data);
 
-connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {_, Ref}} = Data) ->
+connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
 connected(info, Info, Data) ->
@@ -391,7 +396,10 @@ handle_event(_, _, _Data) ->
     keep_state_and_data.
 
 handle_connect_error(Code, Data) ->
-    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport} = Data,
+    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
+    _ = stop_timer(KeepAliveTimer),
+    _ = mqtt_transport:close(Transport),
+
     Error = case Code of
         1 -> unacceptable_protocol;
         2 -> identifier_rejected;
@@ -408,15 +416,17 @@ handle_connect_error(Code, Data) ->
                 callback = Callback,
                 callback_state = CallbackState1,
                 failures = 1,
-                reconnect_timer = start_reconnect_timer(backoff(0, Min, Max))
+                reconnect_timer = start_timer(backoff(0, Min, Max), reconnect)
             }};
         {stop, _} = Stop ->
             Stop
     end.
 
 handle_disconnect(Error, #connected{} = Data) ->
-    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport} = Data,
+    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
+    _ = stop_timer(KeepAliveTimer),
     _ = mqtt_transport:close(Transport),
+
     case Callback:handle_disconnect(Error, CallbackState) of
         {reconnect, {backoff, Min, Max}, CallbackState1} ->
             {next_state, disconnected, #disconnected{
@@ -424,7 +434,7 @@ handle_disconnect(Error, #connected{} = Data) ->
                 callback = Callback,
                 callback_state = CallbackState1,
                 failures = 1,
-                reconnect_timer = start_reconnect_timer(backoff(0, Min, Max))
+                reconnect_timer = start_timer(backoff(0, Min, Max), reconnect)
             }};
         {stop, _} = Stop ->
             Stop
@@ -436,7 +446,7 @@ handle_disconnect(Error, #disconnected{} = Data) ->
             {keep_state, Data#disconnected{
                 callback_state = CallbackState1,
                 failures = Failures + 1,
-                reconnect_timer = start_reconnect_timer(backoff(Failures, Min, Max))
+                reconnect_timer = start_timer(backoff(Failures, Min, Max), reconnect)
             }};
         {stop, _} = Stop ->
             Stop
@@ -523,26 +533,32 @@ send(Packet, Data) ->
     #connected{transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
     case mqtt_transport:send(Transport, mqtt_packet:encode(Packet)) of
         ok ->
-            Data#connected{keep_alive_timer = restart_keep_alive_timer(KeepAliveTimer)};
+            Data#connected{keep_alive_timer = restart_timer(KeepAliveTimer)};
         Error ->
             throw(handle_disconnect(Error, Data))
     end.
 
-start_keep_alive_timer(0) ->
+-spec start_timer(non_neg_integer(), Tag) -> timer(Tag) when Tag :: term().
+-type timer(Tag) :: {timer, reference(), Tag, MilliSecs :: non_neg_integer()}.
+start_timer(MilliSecs, Tag) ->
+    Ref = erlang:start_timer(MilliSecs, self(), Tag),
+    {timer, Ref, Tag, MilliSecs}.
+
+-spec stop_timer(timer(term()) | undefined) -> undefined.
+stop_timer(undefined) ->
     undefined;
-start_keep_alive_timer(Secs) ->
-    Ref = erlang:start_timer(trunc(Secs * 1000), self(), keep_alive),
-    {Secs, Ref}.
+stop_timer({timer, Ref, _, _}) ->
+    _ = erlang:cancel_timer(Ref),
+    undefined.
 
-restart_keep_alive_timer(undefined) ->
+-spec restart_timer(timer(Tag) | undefined) -> timer(Tag) | undefined when Tag :: term().
+restart_timer(undefined) ->
     undefined;
-restart_keep_alive_timer({Secs, Ref}) ->
-    erlang:cancel_timer(Ref),
-    start_keep_alive_timer(Secs).
+restart_timer({timer, Ref, Tag, MilliSecs}) ->
+    _ = erlang:cancel_timer(Ref),
+    start_timer(MilliSecs, Tag).
 
-start_reconnect_timer(Millisecs) ->
-    erlang:start_timer(Millisecs, self(), reconnect).
-
+-spec backoff(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
 backoff(Failures, Min, Max) ->
     Interval = 1000 * trunc(math:pow(2, Failures)),
     max(Min, min((rand:uniform(Interval) - 1), Max)).
