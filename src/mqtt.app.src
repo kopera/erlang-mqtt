@@ -1,6 +1,6 @@
 {application, mqtt, [
     {description, "MQTT protocol implementation"},
-    {vsn, "semver"},
+    {vsn, "0.2.0"},
     {registered, []},
     {applications, [
         kernel,
