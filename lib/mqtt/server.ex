@@ -1,44 +1,44 @@
-defmodule MQTT.Server
+defmodule MQTT.Server do
   @moduledoc """
   A behaviour module for implementing an MQTT "broker".
   """
 
   @callback init(args :: any, params :: init_parameters) ::
     {:ok, state} |
-    {:stop, reason :: init_stop_reason} when state :: any.
+    {:stop, reason :: init_stop_reason} when state: any
 
   @callback handle_publish(topic :: String.t, message :: binary, opts :: map, state) ::
     {:ok, state} |
     {:ok, state, action | [action]} |
-    {:stop, reason :: term} when state :: any.
+    {:stop, reason :: term} when state: any
 
-  @callback handle_subscribe(topic :: String.t, qoS :: :mqtt_packet.qos, state) ::
+  @callback handle_subscribe(topic :: String.t, qos :: :mqtt_packet.qos, state) ::
     {:ok, :mqtt_packet.qos | :failed, state} |
     {:ok, :mqtt_packet.qos | :failed, state, action | [action]} |
-    {:stop, reason :: term} when state :: any.
+    {:stop, reason :: term} when state: any
 
   @callback handle_unsubscribe(topic :: binary, state) ::
     {:ok, state} |
     {:ok, state, action | [action]} |
-    {:stop, reason :: term} when state :: any.
+    {:stop, reason :: term} when state: any
 
   @callback handle_call(call :: any, from :: :gen_statem.from, state) ::
     {:ok, state} |
     {:ok, state, action | [action]} |
-    {:stop, reason :: term} when state :: any.
+    {:stop, reason :: term} when state: any
 
   @callback handle_cast(cast :: any, state) ::
     {:ok, state} |
     {:ok, state, action | [action]} |
-    {:stop, reason :: term} when state :: any.
+    {:stop, reason :: term} when state: any
 
   @callback handle_info(info :: any, state) ::
     {:ok, state} |
     {:ok, state, action | [action]} |
-    {:stop, reason :: term} when state :: any.
+    {:stop, reason :: term} when state: any
 
   @callback terminate(:normal | :shutdown | {:shutdown, term} | term, state) ::
-    any when state :: any.
+    any when state: any
 
   @callback code_change(old_vsn, state :: any, extra :: term) ::
     {:ok, new_state :: any} |
@@ -46,18 +46,18 @@ defmodule MQTT.Server
 
   @typedoc "The init parameters, received from the newly connected client"
   @type init_parameters :: %{
-    protocol: String.t,
-    clean_session: boolean,
-    client_id: String.t,
-    optional(username) => String.t,
-    optional(password) => String.t,
-    optional(last_will) => %{
+    required(:protocol) => String.t,
+    required(:clean_session) => boolean,
+    required(:client_id) => String.t,
+    optional(:username) => String.t,
+    optional(:password) => String.t,
+    optional(:last_will) => %{
       topic: iodata,
       message: iodata,
       qos: :mqtt_packet.qos,
       retain: boolean
     }
-  }.
+  }
 
   @typedoc "The reason for rejecting a connection"
   @type init_stop_reason ::
@@ -65,12 +65,12 @@ defmodule MQTT.Server
     :server_unavailable |
     :bad_username_or_password |
     :not_authorized |
-    6..255.
+    6..255
 
   @type action ::
     {:publish, topic :: String.t, message :: iodata} |
-    {:publish, topic :: String.t, message :: iodata, %{optional(qos) => :mqtt_packet.qos, optional(retain) => boolean}} |
-    {:reply, :gen_statem.from(), term()}.
+    {:publish, topic :: String.t, message :: iodata, %{optional(:qos) => :mqtt_packet.qos, optional(:retain) => boolean}} |
+    {:reply, :gen_statem.from(), term()}
 
   @doc false
   defmacro __using__(_) do

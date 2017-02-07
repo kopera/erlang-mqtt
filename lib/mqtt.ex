@@ -1,2 +1,2 @@
-defmodule MQTT
+defmodule MQTT do
 end

@@ -1,2 +1,2 @@
-defmodule MQTT.Client
+defmodule MQTT.Client do
 end
