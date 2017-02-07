@@ -75,7 +75,7 @@ defmodule MQTT.Server do
   @doc false
   defmacro __using__(_) do
     quote location: :keep do
-      @behaviour __MODULE__
+      @behaviour MQTT.Server
 
       @doc false
       def handle_publish(_topic, _msg, _opts, state) do
