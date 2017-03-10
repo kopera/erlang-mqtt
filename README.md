@@ -1,6 +1,6 @@
 # erlang-mqtt
 
-MQTT Protocol library for Erlang. This library provides low level building blocks for MQTT.
+MQTT Protocol library for Erlang/Elixir. This library provides the low level building blocks for MQTT.
 
 ## Protocol
 
