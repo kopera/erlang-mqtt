@@ -1,11 +1,18 @@
 {application, mqtt, [
-    {description, "MQTT protocol implementation"},
-    {vsn, "0.2.0"},
+    {description, "Erlang low level MQTT protocol implementation"},
+    {vsn, "0.1.0"},
     {registered, []},
     {applications, [
         kernel,
         stdlib
     ]},
     {env, []},
-    {modules, []}
+    {modules, []},
+    {maintainers, [
+        "Ali Sabil"
+    ]},
+    {licenses, ["Apache"]},
+    {links, [
+        {"Github", "https://github.com/kopera/erlang-mqtt"}
+    ]}
 ]}.
