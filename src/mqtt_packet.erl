@@ -291,7 +291,7 @@ encode(#mqtt_suback{packet_id = PacketId, acks = Acks}) ->
 encode(#mqtt_unsubscribe{packet_id = PacketId, topics = Topics}) ->
     Payload = [<<PacketId:16>>, encode_topics(Topics)],
     PayloadLength = encode_length(iolist_size(Payload)),
-    [<<10:4, 2#0010>>, PayloadLength, Payload];
+    [<<10:4, 2#0010:4>>, PayloadLength, Payload];
 encode(#mqtt_unsuback{packet_id = PacketId}) ->
     <<11:4, 0:4, 2:8, PacketId:16>>;
 encode(#mqtt_pingreq{}) ->
