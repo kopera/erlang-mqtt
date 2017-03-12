@@ -66,6 +66,8 @@ open_ssl(Host, Port, Options, Timeout) ->
     end.
 
 -spec send(transport(), iodata()) -> ok | {error, any()}.
+send(_, Data) when Data =:= <<>>; Data =:= [] ->
+    ok;
 send(#tcp{socket = Socket}, Data) ->
     gen_tcp:send(Socket, Data);
 send(#ssl{socket = Socket}, Data) ->
