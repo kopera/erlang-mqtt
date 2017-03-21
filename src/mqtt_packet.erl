@@ -138,7 +138,7 @@ parse_packet(<<7:4, 0:4>>, <<PacketId:16>>) ->
     #mqtt_pubcomp{packet_id = PacketId};
 %% SUBSCRIBE
 parse_packet(<<8:4, 2#0010:4>>, <<PacketId:16, Topics/binary>>) ->
-    case parse_topics(Topics) of
+    case parse_subscribe_topics(Topics) of
         {error, _} = Error -> Error;
         T -> #mqtt_subscribe{packet_id = PacketId, topics = T}
     end;
@@ -147,7 +147,7 @@ parse_packet(<<9:4, 0:4>>, <<PacketId:16, Acks/binary>>) ->
     #mqtt_suback{packet_id = PacketId, acks = parse_acks(Acks)};
 %% UNSUBSCRIBE
 parse_packet(<<10:4, 2#0010:4>>, <<PacketId:16, Topics/binary>>) ->
-    case parse_topics(Topics) of
+    case parse_unsubscribe_topics(Topics) of
         {error, _} = Error -> Error;
         T -> #mqtt_unsubscribe{packet_id = PacketId, topics = T}
     end;
@@ -164,8 +164,8 @@ parse_packet(<<13:4, 0:4>>, <<>>) ->
 parse_packet(<<14:4, 0:4>>, <<>>) ->
     #mqtt_disconnect{};
 %% ...
-parse_packet(_, _) ->
-    {error, malformed_packet}.
+parse_packet(Header, _) ->
+    {error, {malformed_packet, Header}}.
 
 %% @private
 parse_last_will(<<_:1, _:2, 0:1>>, Payload) ->
@@ -205,19 +205,34 @@ parse_topic(Topic) ->
     Topic.
 
 %% @private
-parse_topics(Topics) ->
-    parse_topics(Topics, []).
+parse_subscribe_topics(Topics) ->
+    parse_subscribe_topics(Topics, []).
 
 %% @private
-parse_topics(<<Len:16, Topic:Len/binary, 0:6, QoS:2, Rest/binary>>, Acc) ->
+parse_subscribe_topics(<<Len:16, Topic:Len/binary, 0:6, QoS:2, Rest/binary>>, Acc) ->
     case parse_topic(Topic) of
         {error, _} = Error -> Error;
-        T -> parse_topics(Rest, [{T, QoS} | Acc])
+        T -> parse_subscribe_topics(Rest, [{T, QoS} | Acc])
     end;
-parse_topics(<<>>, Topics) ->
+parse_subscribe_topics(<<>>, Topics) ->
     lists:reverse(Topics);
-parse_topics(_, _) ->
-    {error, malformed_packet}.
+parse_subscribe_topics(Topics, _) ->
+    {error, {malformed_topics, Topics}}.
+
+%% @private
+parse_unsubscribe_topics(Topics) ->
+    parse_unsubscribe_topics(Topics, []).
+
+%% @private
+parse_unsubscribe_topics(<<Len:16, Topic:Len/binary, Rest/binary>>, Acc) ->
+    case parse_topic(Topic) of
+        {error, _} = Error -> Error;
+        T -> parse_unsubscribe_topics(Rest, [T | Acc])
+    end;
+parse_unsubscribe_topics(<<>>, Topics) ->
+    lists:reverse(Topics);
+parse_unsubscribe_topics(Topics, _) ->
+    {error, {malformed_topics, Topics}}.
 
 %% @private
 parse_acks(Acks) ->
