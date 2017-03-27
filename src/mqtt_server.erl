@@ -113,10 +113,10 @@ handle_cast(Cast, State) ->
 handle_info({DataTag, Source, Incoming}, #state{transport = Transport, transport_tags = {DataTag, _, _, Source}} = State) ->
     ok = mqtt_transport:set_opts(Transport, [{active, once}]),
     call_protocol(handle_data, [Incoming], State);
-handle_info({ClosedTag, Source}, #state{transport_tags = {_, ClosedTag, _, Source}}) ->
-    {stop, normal};
-handle_info({ErrorTag, Source, Reason}, #state{transport_tags = {_, _, ErrorTag, Source}}) ->
-    {stop, Reason};
+handle_info({ClosedTag, Source}, #state{transport_tags = {_, ClosedTag, _, Source}} = State) ->
+    {stop, normal, State};
+handle_info({ErrorTag, Source, Reason}, #state{transport_tags = {_, _, ErrorTag, Source}} = State) ->
+    {stop, Reason, State};
 handle_info(Info, State) ->
     call_protocol(handle_info, [Info], State).
 
