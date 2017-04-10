@@ -71,7 +71,6 @@ defmodule MQTT.Client do
 
       @doc false
       def handle_connect(_session_present, state) do
-          IO.puts("Macro handle connect")
           {:ok, state}
       end
 
@@ -131,19 +130,7 @@ defmodule MQTT.Client do
 
   @spec start_link(module(), any(), map()) :: {:ok, pid}
   def start_link(module, args, options) do
-    :mqtt_client.start_link(module, args, convert_start_options(options))
-  end
-
-  @spec convert_start_options(start_options() | map()) :: start_options()
-  defp convert_start_options(options) do
-    case options do
-      %{transport: {_protocol, %{host: host} = trans_opts}}
-        when is_binary(host) ->
-          new_trans_opts = {:tcp, %{trans_opts |
-                            host: String.to_charlist(host)}}
-          %{options | transport: new_trans_opts}
-      _ -> options
-    end
+    :mqtt_client.start_link(module, args, options)
   end
 
   @type start_options() :: %{
