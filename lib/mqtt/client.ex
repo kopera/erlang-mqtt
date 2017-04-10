@@ -65,7 +65,7 @@ defmodule MQTT.Client do
       @behaviour :mqtt_client
 
       @doc false
-      def init(_) do
+      def init([]) do
         {:ok, %{}}
       end
 
@@ -128,9 +128,14 @@ defmodule MQTT.Client do
     end
   end
 
-  @spec start_link(module(), any(), map()) :: {:ok, pid}
+  @spec start_link(module(), any(), start_options()) :: {:ok, pid}
   def start_link(module, args, options) do
     :mqtt_client.start_link(module, args, options)
+  end
+
+  @spec start_link(:gen.emgr_name(), module(), any(), start_options()) :: {:ok, pid()}
+  def start_link(name, module, args, options) do
+      :mqtt_client.start_link(name, module, args, options)
   end
 
   @type start_options() :: %{
