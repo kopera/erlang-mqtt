@@ -45,7 +45,7 @@ open(Type, Host, Port, Options) ->
 
 -spec open(tcp | ssl, host(), port_number(), tcp_options() | ssl_options(), timeout()) -> {ok, transport()} | {error, term()}.
 open(Protocol, Host, Port, Options, Timeout) when is_binary(Host) ->
-    open_tcp(unicode:characters_to_list(Host), Port, Options, Timeout);
+    open(Protocol, unicode:characters_to_list(Host), Port, Options, Timeout);
 open(tcp, Host, Port, Options, Timeout) ->
     open_tcp(Host, Port, Options, Timeout);
 open(ssl, Host, Port, Options, Timeout) ->
