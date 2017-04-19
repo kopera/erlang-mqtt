@@ -148,10 +148,7 @@ start_options(Opts) ->
     }.
 
 start_options_transport(KeepAlive, {Type, Opts}) ->
-    Host  = case maps:get(host, Opts, "localhost") of
-      Bin when is_binary(Bin) -> unicode:characters_to_list(Bin);
-      Char -> Char
-    end,
+    Host = maps:get(host, Opts, "localhost"),
     Port = maps:get(port, Opts, case Type of
         tcp -> 1883;
         ssl -> 8883

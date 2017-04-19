@@ -9,7 +9,10 @@ defmodule MQTT.Client.IntegrationTest do
   test "Client should handle publish and subscribe" do
     Process.register self(), :test_client
 
-    {:ok, pid} = TestClient.start_link(%{})
+    {:ok, pid} = TestClient.start_link(
+      %{:transport => {:tcp,
+          %{:host => "localhost"}},
+      })
     assert_receive {:connected, false}
 
     topic = "/my/data/topic"
@@ -21,7 +24,7 @@ defmodule MQTT.Client.IntegrationTest do
     assert_receive {:publish, ^topic, "Hello"}
 
   end
-  
+
   @tag :external
   test "Client should support Last Will and Testament" do
     Process.register self(), :test_client

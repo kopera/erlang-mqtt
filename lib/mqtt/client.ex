@@ -65,11 +65,6 @@ defmodule MQTT.Client do
       @behaviour :mqtt_client
 
       @doc false
-      def init([]) do
-        {:ok, %{}}
-      end
-
-      @doc false
       def handle_connect(_session_present, state) do
           {:ok, state}
       end
@@ -100,13 +95,13 @@ defmodule MQTT.Client do
       end
 
       @doc false
-      def handle_info(msg, state) do
-        {:ok, state}
+      def handle_cast(msg, state) do
+        {:ok, state, msg}
       end
 
       @doc false
-      def handle_cast(msg, state) do
-        {:ok, state, msg}
+      def handle_info(msg, state) do
+        {:ok, state}
       end
 
       @doc false
@@ -119,7 +114,7 @@ defmodule MQTT.Client do
         {:ok, state}
       end
 
-      defoverridable [init: 1, handle_connect: 2, handle_connect_error: 2,
+      defoverridable [handle_connect: 2, handle_connect_error: 2,
                       handle_disconnect: 2, handle_publish: 3,
                       handle_subscribe_result: 3, handle_call: 3,
                       handle_info: 2, handle_cast: 2,
