@@ -27,7 +27,7 @@
 }).
 
 -opaque transport() :: #tcp{} | #ssl{}.
--type host() :: inet:ip_address() | inet:hostname().
+-type host() :: inet:ip_address() | inet:hostname() | binary().
 -type port_number() :: inet:port_number().
 -type tcp_options() :: [gen_tcp:option()].
 -type ssl_options() :: [ssl:connect_option()].
@@ -44,6 +44,8 @@ open(Type, Host, Port, Options) ->
     open(Type, Host, Port, Options, infinity).
 
 -spec open(tcp | ssl, host(), port_number(), tcp_options() | ssl_options(), timeout()) -> {ok, transport()} | {error, term()}.
+open(Protocol, Host, Port, Options, Timeout) when is_binary(Host) ->
+    open(Protocol, unicode:characters_to_list(Host), Port, Options, Timeout);
 open(tcp, Host, Port, Options, Timeout) ->
     open_tcp(Host, Port, Options, Timeout);
 open(ssl, Host, Port, Options, Timeout) ->

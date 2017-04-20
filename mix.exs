@@ -31,6 +31,8 @@ defmodule MQTT.Mixfile do
   defp deps do
     [
       {:ex_doc, "~> 0.15.0", only: :dev},
+      {:dialyze, "~> 0.2.1", only: [:dev, :test], runtime: false},
+      {:credo, "~> 0.7.2", only: [:dev, :test], runtime: false}
     ]
   end
 end
