@@ -1,4 +1,4 @@
-# erlang-mqtt
+# erlang-mqtt [![Build Status](https://travis-ci.org/kopera/erlang-mqtt.svg?branch=master)](https://travis-ci.org/kopera/erlang-mqtt)
 
 MQTT Protocol library for Erlang/Elixir. This library provides the low level building blocks for MQTT.
 
