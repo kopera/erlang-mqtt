@@ -100,6 +100,7 @@
     transport_tags :: mqtt_transport:tags(),
     buffer = <<>> :: binary(),
     keep_alive_timer = undefined :: timer(keep_alive) | undefined,
+    keep_alive_exit_timer = undefined :: timer(keep_alive_exit) | undefined,
     next_id = 0 :: mqtt_packet:packet_id(),
     pending_subscriptions = #{} :: #{mqtt_packet:packet_id() => [Topic :: iodata()]}
 }).
@@ -201,12 +202,12 @@ callback_mode() ->
     handle_event_function.
 
 %% @hidden
-handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}} = Connected) ->
+handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}, keep_alive_exit_timer = KeepAliveExitTimer} = Connected) ->
     #connected{transport = Transport, buffer = Buffer} = Connected,
     case decode_packets(<<Buffer/binary, Data/binary>>) of
         {ok, Messages, Rest} ->
             ok = mqtt_transport:set_opts(Transport, [{active, once}]),
-            {keep_state, Connected#connected{buffer = Rest}, [{next_event, internal, Message} || Message <- Messages]};
+            {keep_state, Connected#connected{buffer = Rest, keep_alive_exit_timer = restart_timer(KeepAliveExitTimer)}, [{next_event, internal, Message} || Message <- Messages]};
         {error, Reason} ->
             {stop, {protocol_error, Reason}}
     end;
@@ -305,6 +306,12 @@ disconnected(internal, connect, Data) ->
                         start_timer(KeepAlive * 1000, keep_alive);
                     KeepAlive =:= 0 ->
                         undefined
+                end,
+                keep_alive_exit_timer = if
+                    KeepAlive > 0 ->
+                        start_timer(KeepAlive * 1500, keep_alive_exit);
+                    KeepAlive =:= 0 ->
+                        undefined
                 end
             })};
         {error, Error} ->
@@ -342,6 +349,9 @@ authenticating({call, _}, _, Data) ->
 authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
+authenticating(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
+    handle_disconnect(keep_alive_timeout, Data);
+
 authenticating(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -378,6 +388,9 @@ connected(cast, Cast, Data) ->
 
 connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
+
+connected(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
+    handle_disconnect(keep_alive_timeout, Data);
 
 connected(info, Info, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
