@@ -350,7 +350,7 @@ authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
 authenticating(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
-    handle_disconnect(network_unreachable, Data);
+    handle_disconnect(keep_alive_timeout, Data);
 
 authenticating(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
@@ -390,7 +390,7 @@ connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
 connected(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
-    handle_disconnect(network_unreachable, Data);
+    handle_disconnect(keep_alive_timeout, Data);
 
 connected(info, Info, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
