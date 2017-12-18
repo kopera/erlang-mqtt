@@ -71,7 +71,6 @@
 
 -include("../include/mqtt_packet.hrl").
 
--define(expiry_interval, 60000).
 -record(options, {
     transport :: {tcp, mqtt_transport:host(), mqtt_transport:port_number(), mqtt_transport:tcp_options(), timeout()}
                | {ssl, mqtt_transport:host(), mqtt_transport:port_number(), mqtt_transport:ssl_options(), timeout()},
@@ -101,7 +100,7 @@
     transport_tags :: mqtt_transport:tags(),
     buffer = <<>> :: binary(),
     keep_alive_timer = undefined :: timer(keep_alive) | undefined,
-    expiry_timer = undefined :: timer(expiry_interval) | undefined,
+    keep_alive_exit_timer = undefined :: timer(keep_alive_exit) | undefined,
     next_id = 0 :: mqtt_packet:packet_id(),
     pending_subscriptions = #{} :: #{mqtt_packet:packet_id() => [Topic :: iodata()]}
 }).
@@ -203,12 +202,12 @@ callback_mode() ->
     handle_event_function.
 
 %% @hidden
-handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}} = Connected) ->
+handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}, keep_alive_exit_timer = KeepAliveExitTimer} = Connected) ->
     #connected{transport = Transport, buffer = Buffer} = Connected,
     case decode_packets(<<Buffer/binary, Data/binary>>) of
         {ok, Messages, Rest} ->
             ok = mqtt_transport:set_opts(Transport, [{active, once}]),
-            {keep_state, Connected#connected{buffer = Rest}, [{next_event, internal, Message} || Message <- Messages]};
+            {keep_state, Connected#connected{buffer = Rest, keep_alive_exit_timer = restart_timer(KeepAliveExitTimer)}, [{next_event, internal, Message} || Message <- Messages]};
         {error, Reason} ->
             {stop, {protocol_error, Reason}}
     end;
@@ -302,10 +301,15 @@ disconnected(internal, connect, Data) ->
                 callback_state = CallbackState,
                 transport = Transport,
                 transport_tags =  mqtt_transport:get_tags(Transport),
-                expiry_timer = start_timer(?expiry_interval, expiry),
                 keep_alive_timer = if
                     KeepAlive > 0 ->
                         start_timer(KeepAlive * 1000, keep_alive);
+                    KeepAlive =:= 0 ->
+                        undefined
+                end,
+                keep_alive_exit_timer = if
+                    KeepAlive > 0 ->
+                        start_timer(KeepAlive * 1500, keep_alive_exit);
                     KeepAlive =:= 0 ->
                         undefined
                 end
@@ -345,8 +349,8 @@ authenticating({call, _}, _, Data) ->
 authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
-authenticating(info, {timeout, Ref, expiry}, #connected{expiry_timer = {timer, Ref, expiry, _}} = Data) ->
-    throw(handle_disconnect(network_unreachable, Data));
+authenticating(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
+    handle_disconnect(network_unreachable, Data);
 
 authenticating(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
@@ -385,8 +389,8 @@ connected(cast, Cast, Data) ->
 connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
-connected(info, {timeout, Ref, expiry}, #connected{expiry_timer = {timer, Ref, expiry, _}} = Data) ->
-    throw(handle_disconnect(network_unreachable, Data));
+connected(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
+    handle_disconnect(network_unreachable, Data);
 
 connected(info, Info, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
@@ -398,8 +402,8 @@ connected(EventType, EventContent, Data) ->
 
 %% Extra handlers
 
-handle_event(internal, #mqtt_pingresp{}, #connected{expiry_timer = ExpiryTimer} = Data) ->
-    {keep_state, Data#connected{expiry_timer = restart_timer(ExpiryTimer)}};
+handle_event(internal, #mqtt_pingresp{}, _Data) ->
+    keep_state_and_data;
 
 handle_event(_, _, _Data) ->
     keep_state_and_data.
