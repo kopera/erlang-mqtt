@@ -71,6 +71,7 @@
 
 -include("../include/mqtt_packet.hrl").
 
+-define(expiry_interval, 60000).
 -record(options, {
     transport :: {tcp, mqtt_transport:host(), mqtt_transport:port_number(), mqtt_transport:tcp_options(), timeout()}
                | {ssl, mqtt_transport:host(), mqtt_transport:port_number(), mqtt_transport:ssl_options(), timeout()},
@@ -100,6 +101,7 @@
     transport_tags :: mqtt_transport:tags(),
     buffer = <<>> :: binary(),
     keep_alive_timer = undefined :: timer(keep_alive) | undefined,
+    expiry_timer = undefined :: timer(expiry_interval) | undefined,
     next_id = 0 :: mqtt_packet:packet_id(),
     pending_subscriptions = #{} :: #{mqtt_packet:packet_id() => [Topic :: iodata()]}
 }).
@@ -300,6 +302,7 @@ disconnected(internal, connect, Data) ->
                 callback_state = CallbackState,
                 transport = Transport,
                 transport_tags =  mqtt_transport:get_tags(Transport),
+                expiry_timer = start_timer(?expiry_interval, expiry),
                 keep_alive_timer = if
                     KeepAlive > 0 ->
                         start_timer(KeepAlive * 1000, keep_alive);
@@ -342,6 +345,9 @@ authenticating({call, _}, _, Data) ->
 authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
+authenticating(info, {timeout, Ref, expiry}, #connected{expiry_timer = {timer, Ref, expiry, _}} = Data) ->
+    throw(handle_disconnect(network_unreachable, Data));
+
 authenticating(EventType, EventContent, Data) ->
     handle_event(EventType, EventContent, Data).
 
@@ -379,6 +385,9 @@ connected(cast, Cast, Data) ->
 connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
     {keep_state, send(#mqtt_pingreq{}, Data)};
 
+connected(info, {timeout, Ref, expiry}, #connected{expiry_timer = {timer, Ref, expiry, _}} = Data) ->
+    throw(handle_disconnect(network_unreachable, Data));
+
 connected(info, Info, Data) ->
     #connected{callback = Callback, callback_state = CallbackState} = Data,
     handle_callback_result(Callback:handle_info(Info, CallbackState), Data);
@@ -389,8 +398,8 @@ connected(EventType, EventContent, Data) ->
 
 %% Extra handlers
 
-handle_event(internal, #mqtt_pingresp{}, _Data) ->
-    keep_state_and_data;
+handle_event(internal, #mqtt_pingresp{}, #connected{expiry_timer = ExpiryTimer} = Data) ->
+    {keep_state, Data#connected{expiry_timer = restart_timer(ExpiryTimer)}};
 
 handle_event(_, _, _Data) ->
     keep_state_and_data.
