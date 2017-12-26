@@ -202,12 +202,12 @@ callback_mode() ->
     handle_event_function.
 
 %% @hidden
-handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}, keep_alive_exit_timer = KeepAliveExitTimer} = Connected) ->
+handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}, keep_alive_timer = KeepAliveTimer, keep_alive_exit_timer = KeepAliveExitTimer} = Connected) ->
     #connected{transport = Transport, buffer = Buffer} = Connected,
     case decode_packets(<<Buffer/binary, Data/binary>>) of
         {ok, Messages, Rest} ->
             ok = mqtt_transport:set_opts(Transport, [{active, once}]),
-            {keep_state, Connected#connected{buffer = Rest, keep_alive_exit_timer = restart_timer(KeepAliveExitTimer)}, [{next_event, internal, Message} || Message <- Messages]};
+            {keep_state, Connected#connected{buffer = Rest, keep_alive_timer = restart_timer(KeepAliveTimer), keep_alive_exit_timer = restart_timer(KeepAliveExitTimer)}, [{next_event, internal, Message} || Message <- Messages]};
         {error, Reason} ->
             {stop, {protocol_error, Reason}}
     end;
@@ -543,10 +543,10 @@ handle_action_unsubscribe(Topics, Data) ->
 %% Helpers
 
 send(Packet, Data) ->
-    #connected{transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
+    #connected{transport = Transport} = Data,
     case mqtt_transport:send(Transport, mqtt_packet:encode(Packet)) of
         ok ->
-            Data#connected{keep_alive_timer = restart_timer(KeepAliveTimer)};
+            Data;
         Error ->
             throw(handle_disconnect(Error, Data))
     end.
