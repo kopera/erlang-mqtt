@@ -409,8 +409,9 @@ handle_event(_, _, _Data) ->
     keep_state_and_data.
 
 handle_connect_error(Code, Data) ->
-    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
+    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer, keep_alive_exit_timer = KeepAliveExitTimer} = Data,
     _ = stop_timer(KeepAliveTimer),
+    _ = stop_timer(KeepAliveExitTimer),
     _ = mqtt_transport:close(Transport),
 
     Error = case Code of
@@ -436,8 +437,9 @@ handle_connect_error(Code, Data) ->
     end.
 
 handle_disconnect(Error, #connected{} = Data) ->
-    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer} = Data,
+    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer, keep_alive_exit_timer = KeepAliveExitTimer} = Data,
     _ = stop_timer(KeepAliveTimer),
+    _ = stop_timer(KeepAliveExitTimer),
     _ = mqtt_transport:close(Transport),
 
     case Callback:handle_disconnect(Error, CallbackState) of
@@ -452,6 +454,7 @@ handle_disconnect(Error, #connected{} = Data) ->
         {stop, _} = Stop ->
             Stop
     end;
+
 handle_disconnect(Error, #disconnected{} = Data) ->
     #disconnected{callback = Callback, callback_state = CallbackState, failures = Failures} = Data,
     case Callback:handle_connect_error({transport_error, Error}, CallbackState) of
