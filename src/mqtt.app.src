@@ -2,6 +2,7 @@
     {description, "Erlang low level MQTT protocol implementation"},
     {vsn, "0.2.3"},
     {registered, []},
+    {mod, {mqtt_app, []}},
     {applications, [
         kernel,
         stdlib
