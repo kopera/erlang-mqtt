@@ -1,5 +1,5 @@
 -record(mqtt_last_will, {
-    topic :: iodata(),
+    topic :: mqtt_packet:topic(),
     message :: iodata(),
     qos :: mqtt_packet:qos(),
     retain :: boolean()
@@ -25,7 +25,7 @@
     dup = false :: boolean(),
     qos = 0 :: mqtt_packet:qos(),
     retain = false :: boolean(),
-    topic :: binary(),
+    topic :: mqtt_packet:topic(),
     message :: binary()
 }).
 
@@ -47,7 +47,7 @@
 
 -record(mqtt_subscribe, {
     packet_id :: mqtt_packet:packet_id(),
-    topics :: [{Topic :: binary(), QoS :: mqtt_packet:qos()}]
+    topics :: [{Topic :: mqtt_packet:topic(), QoS :: mqtt_packet:qos()}]
 }).
 
 -record(mqtt_suback, {
