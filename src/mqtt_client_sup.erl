@@ -4,8 +4,7 @@
     start_link/0
 ]).
 -export([
-    start_connection/2,
-    stop_connection/1
+    start_connection/2
 ]).
 
 -behaviour(supervisor).
@@ -14,18 +13,12 @@
 ]).
 
 
-start_link() ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
-
-
--spec start_connection(pid(), mqtt_client:start_options()) -> {ok, pid(), integer()} | {error, string()}.
 start_connection(Owner, Opts) ->
     supervisor:start_child(?MODULE, [Owner, Opts]).
 
 
-% -spec stop_connection(ble:connection()) -> ok.
-stop_connection(Connection) ->
-    mqtt_client:close(Connection).
+start_link() ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 
 init([]) ->
