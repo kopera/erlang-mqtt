@@ -1,7 +1,7 @@
 {application, mqtt, [
     {description, "Erlang low level MQTT protocol implementation"},
     {vsn, "0.2.3"},
-    {registered, []},
+    {registered, [mqtt_sup, mqtt_client_sup]},
     {mod, {mqtt_app, []}},
     {applications, [
         kernel,
