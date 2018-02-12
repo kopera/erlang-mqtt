@@ -1,3 +1,4 @@
+%% @private
 -module(mqtt_server_protocol).
 -export([
     init/2,

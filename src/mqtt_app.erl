@@ -1,3 +1,4 @@
+%% @private
 -module(mqtt_app).
 
 -behaviour(application).

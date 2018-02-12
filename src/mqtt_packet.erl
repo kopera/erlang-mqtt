@@ -1,3 +1,4 @@
+%% @private
 -module(mqtt_packet).
 -export([
     decode/1,
