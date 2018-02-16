@@ -7,14 +7,19 @@ defmodule MQTT.Client.IntegrationTest do
 
   @tag :external
   test "Client should handle publish and subscribe" do
-    {:ok, connection} = Client.connect(%{
+    {:ok, connection, false} = Client.connect(%{
       transport: {:tcp, %{host: "localhost"}}
     })
 
     topic = "/my/data/topic"
+    message = "Hello"
 
-    {:ok, [{^topic, 0}]} = Client.subscribe(connection, topic)
-    :ok = Client.publish(connection, topic, "Hello")
+    {:ok, [{^topic, 0}]} = Client.subscribe(connection, [{topic, 0}])
+    :ok = Client.publish(connection, topic, message)
+
+    assert_receive {:mqtt_client, ^connection, {:publish, ^topic, ^message, _}}
+
+    :ok = Client.disconnect(connection)
   end
 
   @tag :external
@@ -22,7 +27,7 @@ defmodule MQTT.Client.IntegrationTest do
     lwt_topic = "/last/will"
     lwt_message = "Goodbye cruel World!"
 
-    {:ok, connection1} = Client.connect(%{
+    {:ok, connection1, false} = Client.connect(%{
       transport: {:tcp, %{host: "localhost"}},
       last_will: %{
         topic: lwt_topic,
@@ -32,15 +37,17 @@ defmodule MQTT.Client.IntegrationTest do
       }
     })
 
-    {:ok, connection2} = Client.connect(%{
+    {:ok, connection2, false} = Client.connect(%{
       transport: {:tcp, %{host: "localhost"}}
     })
 
-    {:ok, [{lwt_topic, _}]} = Client.subscribe(connection2, lwt_topic)
+    {:ok, [{lwt_topic, _}]} = Client.subscribe(connection2, [lwt_topic])
     :gen_statem.stop(connection1)
 
-    assert_receive {:mqtt_client, ^connection2, {:publish, ^lwt_topic, ^lwt_message}}
+    assert_receive {:mqtt_client, ^connection2, {:publish, ^lwt_topic, ^lwt_message, _}}
 
+    :ok = Client.disconnect(connection1)
+    :ok = Client.disconnect(connection2)
   end
 
 end
