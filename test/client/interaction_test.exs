@@ -36,8 +36,8 @@ defmodule MQTT.Client.IntegrationTest do
       transport: {:tcp, %{host: "localhost"}}
     })
 
-    {ok, [{lwt_topic, _}]} = Client.subscribe(connection2, lwt_topic)
-    :gen_fsm.stop(connection1)
+    {:ok, [{lwt_topic, _}]} = Client.subscribe(connection2, lwt_topic)
+    :gen_statem.stop(connection1)
 
     assert_receive {:mqtt_client, ^connection2, {:publish, ^lwt_topic, ^lwt_message}}
 
