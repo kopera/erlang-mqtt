@@ -243,9 +243,9 @@ disconnected({call, From}, {connect, Opts}, #data{} = StateData) ->
         last_will := LastWill,
         keep_alive := KeepAlive
     } = Opts,
-    {KeepAlivePingTimeout, KeepAliveExitTimeout} = if
-        KeepAlive > 0 -> {KeepAlive * 1000, KeepAlive * 1500};
-        KeepAlive =:= 0 -> {infinity, infinity}
+    {KeepAlivePingTimeout, KeepAliveExitTimeout} = case KeepAlive of
+        infinity -> {infinity, infinity};
+        _ -> {KeepAlive, trunc(KeepAlive * 1.5)}
     end,
 
     case mqtt_transport:open(TransportType, Host, Port, TransportOpts, ConnectTimeout) of
@@ -255,7 +255,10 @@ disconnected({call, From}, {connect, Opts}, #data{} = StateData) ->
                 protocol_level = 4,
                 last_will = LastWill,
                 clean_session = CleanSession,
-                keep_alive = KeepAlive,
+                keep_alive = case KeepAlive of
+                    infinity -> 0;
+                    _ -> KeepAlive
+                end,
                 client_id = ClientId,
                 username = Username,
                 password = Password
