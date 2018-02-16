@@ -19,4 +19,4 @@ before_script:
 script:
   - mix test --include external
   - mix credo
-  - mix dialyze
+  - mix dialyzer
