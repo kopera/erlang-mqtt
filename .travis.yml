@@ -2,9 +2,9 @@ sudo: true
 
 language: elixir
 elixir:
-  - 1.4.2
+  - 1.6.1
 otp_release:
-  - 19.2
+  - 20.2.3
 
 before_install:
   - sudo add-apt-repository ppa:mosquitto-dev/mosquitto-ppa -y
