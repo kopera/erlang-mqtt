@@ -123,7 +123,7 @@ disconnect(Connection) ->
 %% @doc Synchronously subscribe to a set of topics.
 subscribe(Connection, Topics) when is_list(Topics) ->
     gen_statem:call(Connection, {subscribe, [case T of
-        {Topic, QoS} when (is_binary(Topic) orelse is_list(Topic)) andalso is_integer(QoS) -> {Topic, QoS};
+        {Topic, 0} when (is_binary(Topic) orelse is_list(Topic)) -> {Topic, 0};
         Topic when is_binary(Topic); is_list(Topic) -> {Topic, 0}
     end || T <- Topics]}).
 
