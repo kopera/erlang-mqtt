@@ -190,8 +190,8 @@ connected(#mqtt_publish{packet_id = Id, dup = Dup, qos = QoS, retain = Retain, t
     handle_publish(Id, Topic, Message, #{dup => Dup, qos => QoS, retain => Retain}, Protocol);
 connected(#mqtt_subscribe{packet_id = Id, topics = Topics}, Protocol) ->
     handle_subscribe(Id, Topics, Protocol);
-connected(#mqtt_unsubscribe{topics = Topics}, Protocol) ->
-    handle_unsubscribe(Topics, Protocol);
+connected(#mqtt_unsubscribe{packet_id = Id, topics = Topics}, Protocol) ->
+    handle_unsubscribe(Id, Topics, Protocol);
 connected(#mqtt_pingreq{}, Protocol) ->
     {ok, Protocol, [encode_send(#mqtt_pingresp{})]}.
 
@@ -234,25 +234,28 @@ handle_subscribe(Id, [], ResultAcc, ActionsAcc, #protocol{} = Protocol) ->
         encode_actions(lists:reverse(ActionsAcc))
     ]}.
 
-handle_unsubscribe(Topics, Protocol) ->
-    handle_unsubscribe(Topics, [], Protocol).
+handle_unsubscribe(Id, Topics, Protocol) ->
+    handle_unsubscribe(Id, Topics, [], Protocol).
 
-handle_unsubscribe([Topic | Topics], ActionsAcc, Protocol) ->
+handle_unsubscribe(Id, [Topic | Topics], ActionsAcc, Protocol) ->
     #protocol{callback = Callback, callback_state = CallbackState} = Protocol,
     case Callback:handle_unsubscribe(Topic, CallbackState) of
         {ok, CallbackState1} ->
-            handle_unsubscribe(Topics, ActionsAcc, Protocol#protocol{
+            handle_unsubscribe(Id, Topics, ActionsAcc, Protocol#protocol{
                 callback_state = CallbackState1
             });
         {ok, CallbackState1, Actions} ->
-            handle_unsubscribe(Topics, lists:reverse(actions(Actions), ActionsAcc), Protocol#protocol{
+            handle_unsubscribe(Id, Topics, lists:reverse(actions(Actions), ActionsAcc), Protocol#protocol{
                 callback_state = CallbackState1
             });
         {stop, Reason} ->
             {stop, Reason, []}
     end;
-handle_unsubscribe([], ActionsAcc, #protocol{} = Protocol) ->
-    {ok, Protocol, encode_actions(lists:reverse(ActionsAcc))}.
+handle_unsubscribe(Id, [], ActionsAcc, #protocol{} = Protocol) ->
+    {ok, Protocol, [
+        encode_send(#mqtt_unsuback{packet_id = Id}) |
+        encode_actions(lists:reverse(ActionsAcc))
+    ]}.
 
 
 %% Decoding
