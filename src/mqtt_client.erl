@@ -321,8 +321,10 @@ authenticating(_From, {timeout, keep_alive_ping}, _, #data{} = StateData) ->
         keep_alive_ping_timer(KeepAlivePingTimeout)
     ]};
 
-authenticating(_From, {timeout, keep_alive_exit}, _, #data{} = _StateData) ->
-    {stop, normal};
+authenticating(From, {timeout, keep_alive_exit}, _, #data{} = StateData) ->
+    {stop_and_reply, normal, [
+        {reply, From, {error, timeout}}
+    ], StateData};
 
 authenticating(_From, EventType, EventContent, StateData) ->
     handle_event(EventType, EventContent, StateData).
