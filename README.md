@@ -9,105 +9,46 @@ MQTT Protocol library for Erlang/Elixir. This library provides the low level bui
 
 ## Client
 
-`mqtt_client` provides a client behaviour for MQTT. A client would implement the `mqtt_client` behaviour, and would then
-be able to connect to an MQTT broker/server. Currently this client only supports publishing QoS 0 messages.
+`mqtt_client` provides a simple client for MQTT. Currently this client only supports QoS 0 messages.
 
-### Example client behaviour
+### Example Erlang client usage
 
 ```erlang
--module(my_mqtt_client).
--export([
-    report/1
-]).
+{:ok, Connection, false} = mqtt_client:connect(#{
+    transport => {tcp, #{host => "localhost"}}
+}),
 
--export([
-    start_link/0
-]).
+Topic = <<"/test">>,
+{:ok, [{Topic, 0}]} = mqtt_client:subscribe(Connection, [{topic, 0}]),
 
--behaviour(mqtt_client).
--export([
-    init/1,
-    handle_connect/2,
-    handle_connect_error/2,
-    handle_disconnect/2,
-    handle_publish/3,
-    handle_subscribe_result/3,
-    handle_call/3,
-    handle_cast/2,
-    handle_info/2,
-    terminate/2,
-    code_change/3
-]).
-
-
--record(state, {}).
-
--spec start_link() -> {ok, pid()}.
-start_link() ->
-    mqtt_client:start_link({local, ?MODULE}, ?MODULE, [], #{
-        transport => {tcp, #{host => "localhost", port => 1883}},
-        protocol => "MYMQTT/1.0"
-    }).
-
--spec report(iodata()) -> ok.
-report(Data) ->
-    mqtt_client:cast(?MODULE, {report, Data}).
-
-
-%% @hidden
-init([]) ->
-    {ok, #state{}}.
-
-%% @hidden
-%% Called whenever we get connected
-handle_connect(_SessionPresent, State) ->
-    {ok, State}.
-
-%% @hidden
-%% Called whenever we fail to connect, either because the connect request was rejected, or because we failed to
-%% establish a connection at the transport (TCP) level.
-handle_connect_error(Reason, State) ->
-    error_logger:error_msg("Unable to connect to MQTT broker: ~p~n", [Reason]),
-    {reconnect, {backoff, 5000, 15000}, State}.
-
-%% @hidden
-%% Called whenever we get disconnected.
-handle_disconnect(Reason, State) ->
-    error_logger:warning_msg("Disconnected from MQTT broker: ~p~n", [Reason]),
-    {reconnect, {backoff, 200, 15000}, State}.
-
-%% @hidden
-%% Called whenever a message is received on a `topic`
-handle_publish(_Topic, _Message, State) ->
-    {ok, State}.
-
-%% @hidden
-%% Called whenever a `suback` is received, the Result is either `failed` or the granted QoS level.
-handle_subscribe_result(_Topic, _Result, State) ->
-    {ok, State}.
-
-%% @hidden
-handle_call(Request, From, State) ->
-    {ok, State, {reply, From, {error, {unhandled_request, Request}}}}.
-
-%% @hidden
-handle_cast({report, Data}, State) ->
-    {ok, State, {publish, "/my/data/topic", Data}};
-handle_cast(_Request, State) ->
-    {ok, State}.
-
-%% @hidden
-handle_info(_Info, State) ->
-    {ok, State}.
-
-%% @hidden
-terminate(_Reason, _State) ->
-    ok.
-
-%% @hidden
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+ok = mqtt_client:publish(Connection, Topic, <<"Hello">>),
+receive
+    {mqtt_client, Connection, {publish, Topic, Message, _}} ->
+        io:format("Got ~s published on ~s~n", [Message, Topic]
+end.
 ```
+
+### Example Elixir client usage
+
+```elixir
+{:ok, connection, false} = MQTT.Client.connect(%{
+    transport: {:tcp, %{host: "localhost"}}
+})
+
+topic = "/test"
+{:ok, [{^topic, 0}]} = MQTT.Client.subscribe(connection, [{topic, 0}])
+
+:ok = MQTT.Client.publish(connection, topic, "Hello")
+receive do
+    {:mqtt_client, ^connection, {:publish, ^topic, message, _}} ->
+        IO.puts "Got #{message} published on #{topic}"
+end
+```
+
+## Server
+
+`mqtt_server` provides a server behaviour for MQTT. A server would implement the `mqtt_server` behaviour, and would then
+be able to accept MQTT connections from clients. Currently this server only supports QoS 0 messages.
 
 ## TODO
 
