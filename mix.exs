@@ -5,8 +5,8 @@ defmodule MQTT.Mixfile do
     [
       app: :mqtt,
       name: "MQTT",
-      version: "0.2.3",
-      elixir: "~> 1.0",
+      version: "0.3.0",
+      elixir: "~> 1.6",
       package: package(),
       description: "Erlang/Elixir low level MQTT protocol implementation",
       source_url: "https://github.com/kopera/erlang-mqtt",
