@@ -1,3 +1,4 @@
+%% @private
 -module(mqtt_transport).
 -export([
     new/2,

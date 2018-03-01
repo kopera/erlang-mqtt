@@ -1,15 +1,14 @@
 -module(mqtt_client).
 -export([
-    start_link/3,
-    start_link/4,
-    stop/1,
-    stop/3,
-    cast/2,
-    call/2,
-    call/3
+    connect/1,
+    disconnect/1,
+    subscribe/2,
+    unsubscribe/2,
+    publish/3,
+    publish/4
 ]).
--export_type([
-    action/0
+-export([
+    start_link/2
 ]).
 
 -behaviour(gen_statem).
@@ -21,92 +20,33 @@
     terminate/3
 ]).
 
--callback init(Args :: any()) ->
-      {ok, State :: any()}
-    | {stop, Reason :: term()}
-    | ignore.
--callback handle_connect(SessionPresent :: boolean(), State :: any()) ->
-      {ok, State :: any()}
-    | {ok, State :: any(), action() | [action()]}
-    | {stop, Reason :: term()}.
--callback handle_connect_error(Reason :: term(), State :: any()) ->
-      {reconnect, {backoff, Min :: non_neg_integer(), Max :: pos_integer()}, State :: any()}
-    | {stop, Reason :: term()}.
--callback handle_disconnect(Reason :: term(), State :: any()) ->
-      {reconnect, {backoff, Min :: non_neg_integer(), Max :: pos_integer()}, State :: any()}
-    | {stop, Reason :: term()}.
--callback handle_publish(Topic :: binary(), Message :: binary(), State :: any()) ->
-      {ok, State :: any()}
-    | {ok, State :: any(), action() | [action()]}
-    | {stop, Reason :: term()}.
--callback handle_subscribe_result(Topic :: binary(), mqtt_packet:qos() | failed, State :: any()) ->
-      {ok, State :: any()}
-    | {ok, State :: any(), action() | [action()]}
-    | {stop, Reason :: term()}.
--callback handle_call(Call :: any(), From :: gen_statem:from(), State :: any()) ->
-      {ok, State :: any()}
-    | {ok, State :: any(), action() | [action()]}
-    | {stop, Reason :: term()}.
--callback handle_cast(Cast :: any(), State :: any()) ->
-      {ok, State :: any()}
-    | {ok, State :: any(), action() | [action()]}
-    | {stop, Reason :: term()}.
--callback handle_info(Info :: any(), State :: any()) ->
-      {ok, State :: any()}
-    | {ok, State :: any(), action() | [action()]}
-    | {stop, Reason :: term()}.
--callback terminate(normal | shutdown | {shutdown, term()} | term(), State :: any()) ->
-    any().
--callback code_change(OldVsn :: term() | {down, term()}, OldState :: any(), Extra :: term()) ->
-      {ok, NewState :: any()}
-    | term().
-
--type action() ::
-      {publish, Topic :: iodata(), Message :: iodata()}
-    | {publish, Topic :: iodata(), Message :: iodata(), #{qos => mqtt_packet:qos(), retain => boolean()}}
-    | {subscribe, Topic :: iodata()}
-    | {subscribe, Topic :: iodata(), #{qos => mqtt_packet:qos()}}
-    | {unsubscribe, Topic :: iodata()}
-    | {reply, gen_statem:from(), term()}.
-
 -include("../include/mqtt_packet.hrl").
+-define(disconnect_timeout, 5000).
 
--record(options, {
-    transport :: {tcp, mqtt_transport:host(), mqtt_transport:port_number(), mqtt_transport:tcp_options(), timeout()}
-               | {ssl, mqtt_transport:host(), mqtt_transport:port_number(), mqtt_transport:ssl_options(), timeout()},
-    protocol :: iodata(),
-    username :: undefined | iodata(),
-    password :: undefined | iodata(),
-    client_id :: iodata(),
-    clean_session :: boolean(),
-    last_will :: undefined | #mqtt_last_will{},
-    keep_alive :: non_neg_integer()
-}).
 
-%% Data records
--record(disconnected, {
-    options :: #options{},
-    callback :: module(),
-    callback_state :: any(),
-    failures = 0 :: non_neg_integer(),
-    reconnect_timer = undefined :: timer(reconnect) | undefined
-}).
+%% Data record
+-record(data, {
+    owner :: pid(),
+    owner_monitor :: reference(),
 
--record(connected, {
-    options :: #options{},
-    callback :: module(),
-    callback_state :: any(),
-    transport :: mqtt_transport:transport(),
-    transport_tags :: mqtt_transport:tags(),
+    transport :: mqtt_transport:transport() | undefined,
+    transport_tags :: mqtt_transport:tags() | undefined,
     buffer = <<>> :: binary(),
-    keep_alive_timer = undefined :: timer(keep_alive) | undefined,
-    keep_alive_exit_timer = undefined :: timer(keep_alive_exit) | undefined,
+
     next_id = 0 :: mqtt_packet:packet_id(),
-    pending_subscriptions = #{} :: #{mqtt_packet:packet_id() => [Topic :: iodata()]}
+    pending_subscribe = #{} :: #{mqtt_packet:packet_id() => {[Topic :: iodata()], gen_statem:from()}},
+    pending_unsubscribe = #{} :: #{mqtt_packet:packet_id() => gen_statem:from()},
+
+    keep_alive_ping_timeout = infinity :: timeout(),
+    keep_alive_exit_timeout = infinity :: timeout()
 }).
 
--spec start_link(module(), any(), start_options()) -> {ok, pid()}.
--type start_options() :: #{
+-type topic() :: mqtt_packet:topic().
+-type qos() :: mqtt_packet:qos().
+
+
+-spec connect(connect_options()) -> {ok, connection(), SessionPresent :: boolean()} | {error, connect_error()}.
+-type connect_options() :: #{
     transport => {tcp, map()} | {ssl, map()},
     keep_alive => non_neg_integer(),
     protocol => iodata(),
@@ -121,34 +61,44 @@
         retain => boolean()
     }
 }.
-start_link(Module, Args, Opts) ->
-    gen_statem:start_link(?MODULE, [Module, Args, start_options(Opts)], []).
-
--spec start_link(gen:emgr_name(), module(), any(), start_options()) -> {ok, pid()}.
-start_link(Name, Module, Args, Opts) ->
-    gen_statem:start_link(Name, ?MODULE, [Module, Args, start_options(Opts)], []).
-
-start_options(Opts) ->
-    KeepAlive = maps:get(keep_alive, Opts, 0),
-    #options{
-        transport = start_options_transport(KeepAlive, maps:get(transport, Opts, {tcp, #{}})),
-        protocol = maps:get(protocol, Opts, <<"MQTT">>),
-        username = maps:get(username, Opts, undefined),
-        password = maps:get(password, Opts, undefined),
-        client_id = maps:get(client_id, Opts, <<>>),
-        clean_session = maps:get(clean_session, Opts, true),
-        last_will = case maps:get(last_will, Opts, undefined) of
+-type connect_error() ::
+      unacceptable_protocol
+    | identifier_rejected
+    | server_unavailable
+    | bad_username_or_password
+    | not_authorized
+    | pos_integer()
+    | timeout
+    | {transport_error, term()}.
+-type connection() :: pid().
+%% @doc Connect to an mqtt broker.
+connect(Opts) ->
+    KeepAlive = case maps:get(keep_alive, Opts, 0) of
+        N when N > 0 -> N * 1000;
+        0 -> infinity
+    end,
+    mqtt_client_sup:start_connection(self(), #{
+        transport => connect_transport(KeepAlive, maps:get(transport, Opts, {tcp, #{}})),
+        protocol => maps:get(protocol, Opts, <<"MQTT">>),
+        username => maps:get(username, Opts, undefined),
+        password => maps:get(password, Opts, undefined),
+        client_id => maps:get(client_id, Opts, <<>>),
+        clean_session => maps:get(clean_session, Opts, true),
+        last_will => case maps:get(last_will, Opts, undefined) of
             undefined ->
                 undefined;
             #{topic := Topic, message := Message} = LastWill ->
-                QoS = maps:get(qos, LastWill, 0),
-                Retain = maps:get(retain, LastWill, false),
-                #mqtt_last_will{topic = Topic, message = Message, qos = QoS, retain = Retain}
+                #mqtt_last_will{
+                    topic = Topic,
+                    message = Message,
+                    qos = maps:get(qos, LastWill, 0),
+                    retain = maps:get(retain, LastWill, false)
+                }
         end,
-        keep_alive = KeepAlive
-    }.
+        keep_alive => KeepAlive
+    }).
 
-start_options_transport(KeepAlive, {Type, Opts}) ->
+connect_transport(KeepAlive, {Type, Opts}) ->
     Host = maps:get(host, Opts, "localhost"),
     Port = maps:get(port, Opts, case Type of
         tcp -> 1883;
@@ -156,71 +106,351 @@ start_options_transport(KeepAlive, {Type, Opts}) ->
     end),
     ConnectTimeout = maps:get(connect_timeout, Opts, 15000),
     TransportOpts = [
-        {send_timeout, case KeepAlive of 0 -> infinity; _ -> KeepAlive * 1000 end},
+        {send_timeout, KeepAlive},
         {send_timeout_close, true} |
         maps:to_list(maps:without([host, port, connect_timeout], Opts))
     ],
     {Type, Host, Port, TransportOpts, ConnectTimeout}.
 
 
--spec stop(Ref :: client_ref()) -> ok.
--type client_ref() :: pid() | atom() | {atom(), node()} | {global, term()} | {via, module(), term()}.
-stop(Ref) ->
-    gen_statem:stop(Ref).
+-spec disconnect(connection()) -> ok.
+%% @doc Disconnect from an mqtt broker.
+disconnect(Connection) ->
+    gen_statem:cast(Connection, disconnect).
 
--spec stop(Ref :: client_ref(), Reason :: term(), Timeout :: timeout()) -> ok.
-stop(Ref, Reason, Timeout) ->
-    gen_statem:stop(Ref, Reason, Timeout).
 
--spec cast(Ref :: client_ref(), Request :: term()) -> Reply :: term().
-cast(Ref, Request) ->
-    gen_statem:cast(Ref, Request).
+-spec subscribe(connection(), [{topic(), qos()} | topic()]) -> {ok, [{topic(), qos() | failed}]}.
+%% @doc Synchronously subscribe to a set of topics.
+subscribe(Connection, Topics) when is_list(Topics) ->
+    gen_statem:call(Connection, {subscribe, [case T of
+        {Topic, 0} when (is_binary(Topic) orelse is_list(Topic)) -> {Topic, 0};
+        Topic when is_binary(Topic); is_list(Topic) -> {Topic, 0}
+    end || T <- Topics]}).
 
--spec call(Ref :: client_ref(), Request :: term()) -> Reply :: term().
-call(Ref, Request) ->
-    gen_statem:call(Ref, Request).
 
--spec call(Ref :: client_ref(), Request :: term(), Timeout :: timeout()) -> Reply :: term().
-call(Ref, Request, Timeout) ->
-    gen_statem:call(Ref, Request, Timeout).
+-spec unsubscribe(connection(), [topic()]) -> ok.
+%% @doc Unsubscribe from a set of topics.
+unsubscribe(Connection, Topics) when is_list(Topics) ->
+    gen_statem:call(Connection, {unsubscribe, Topics}).
 
-%% @hidden
-init([Callback, Args, #options{} = Options]) ->
-    case Callback:init(Args) of
-        {ok, State} ->
-            {ok, disconnected, #disconnected{
-                options = Options,
-                callback = Callback,
-                callback_state = State
-            }, {next_event, internal, connect}};
-        Other ->
-            Other
+
+-spec publish(connection(), topic(), Message :: iodata()) -> ok.
+%% @doc Publish a message to a topic.
+publish(Connection, Topic, Message) ->
+    publish(Connection, Topic, Message, #{}).
+
+
+-spec publish(connection(), topic(), Message :: iodata(), publish_options()) -> ok.
+-type publish_options() :: #{
+    qos => qos(),
+    retain => boolean()
+}.
+%% @doc Publish a message to a topic.
+publish(_Connection, _Topic, _Message, #{qos := QoS}) when QoS > 0 ->
+    exit(not_implemented);
+publish(Connection, Topic, Message, Options) ->
+    gen_statem:call(Connection, {publish, Topic, Message, Options}).
+
+
+%% @private
+start_link(Owner, Opts) ->
+    case gen_statem:start_link(?MODULE, [Owner], []) of
+        {ok, Connection} ->
+            case gen_statem:call(Connection, {connect, Opts}) of
+                {ok, Present} ->
+                    {ok, Connection, Present};
+                {error, _} = Error ->
+                    Error
+            end;
+        {error, _} = Error ->
+            Error
     end.
 
-%% @hidden
+
+%% @private
+init([Owner]) ->
+    {ok, disconnected, #data{
+        owner = Owner,
+        owner_monitor = erlang:monitor(process, Owner)
+    }}.
+
+
+%% @private
 callback_mode() ->
     handle_event_function.
 
-%% @hidden
-handle_event(info, {DataTag, Source, Data}, _, #connected{transport_tags = {DataTag, _, _, Source}, keep_alive_timer = KeepAliveTimer, keep_alive_exit_timer = KeepAliveExitTimer} = Connected) ->
-    #connected{transport = Transport, buffer = Buffer} = Connected,
+
+%% @private
+handle_event(info, {DataTag, Source, Data}, _, #data{transport_tags = {DataTag, _, _, Source}} = StateData) ->
+    #data{transport = Transport, buffer = Buffer, keep_alive_exit_timeout = KeepAliveExitTimeout} = StateData,
     case decode_packets(<<Buffer/binary, Data/binary>>) of
         {ok, Messages, Rest} ->
             ok = mqtt_transport:set_opts(Transport, [{active, once}]),
-            {keep_state, Connected#connected{buffer = Rest, keep_alive_timer = restart_timer(KeepAliveTimer), keep_alive_exit_timer = restart_timer(KeepAliveExitTimer)}, [{next_event, internal, Message} || Message <- Messages]};
+            {keep_state, StateData#data{buffer = Rest}, [
+                keep_alive_exit_timer(KeepAliveExitTimeout) |
+                [{next_event, internal, Message} || Message <- Messages]
+            ]};
         {error, Reason} ->
             {stop, {protocol_error, Reason}}
     end;
-handle_event(info, {ClosedTag, Source}, _, #connected{transport_tags = {_, ClosedTag, _, Source}} = Connected) ->
-    handle_disconnect(ClosedTag, Connected);
-handle_event(info, {ErrorTag, Source, Reason}, _, #connected{transport_tags = {_, _, ErrorTag, Source}} = Connected) ->
-    handle_disconnect({ErrorTag, Reason}, Connected);
-handle_event(EventType, EventContent, disconnected, Data) ->
-    disconnected(EventType, EventContent, Data);
-handle_event(EventType, EventContent, authenticating, Data) ->
-    authenticating(EventType, EventContent, Data);
-handle_event(EventType, EventContent, connected, Data) ->
-    connected(EventType, EventContent, Data).
+
+handle_event(info, {ClosedTag, Source}, _, #data{transport_tags = {_, ClosedTag, _, Source}} = StateData) ->
+    {stop, normal, StateData#data{transport = undefined}};
+
+handle_event(info, {ErrorTag, Source, Reason}, _, #data{transport_tags = {_, _, ErrorTag, Source}} = StateData) ->
+    {stop, {error, ErrorTag, Reason}, StateData#data{transport = undefined}};
+
+handle_event(EventType, EventContent, disconnected, StateData) ->
+    disconnected(EventType, EventContent, StateData);
+
+handle_event(EventType, EventContent, {authenticating, From}, StateData) ->
+    authenticating(From, EventType, EventContent, StateData);
+
+handle_event(EventType, EventContent, connected, StateData) ->
+    connected(EventType, EventContent, StateData);
+
+handle_event(EventType, EventContent, disconnecting, StateData) ->
+    disconnecting(EventType, EventContent, StateData).
+
+
+%% @private
+terminate(_Reason, _State, #data{transport = undefined} = _StateData) ->
+    ok;
+
+terminate(_Reason, _State, #data{transport = Transport} = _StateData) ->
+    _ = mqtt_transport:close(Transport),
+    ok.
+
+
+%% @private
+code_change(_Vsn, State, StateData, _Extra) ->
+    {ok, State, StateData}.
+
+
+%% States
+
+%%%% Disconnected
+
+
+disconnected({call, From}, {connect, Opts}, #data{} = StateData) ->
+    #{
+        transport := {TransportType, Host, Port, TransportOpts, ConnectTimeout},
+        protocol := Protocol,
+        username := Username,
+        password := Password,
+        client_id := ClientId,
+        clean_session := CleanSession,
+        last_will := LastWill,
+        keep_alive := KeepAlive
+    } = Opts,
+    {KeepAlivePingTimeout, KeepAliveExitTimeout} = case KeepAlive of
+        infinity -> {infinity, infinity};
+        _ -> {KeepAlive, trunc(KeepAlive * 1.5)}
+    end,
+
+    case mqtt_transport:open(TransportType, Host, Port, TransportOpts, ConnectTimeout) of
+        {ok, Transport} ->
+            ok = send_packet(Transport, #mqtt_connect{
+                protocol_name = Protocol,
+                protocol_level = 4,
+                last_will = LastWill,
+                clean_session = CleanSession,
+                keep_alive = case KeepAlive of
+                    infinity -> 0;
+                    _ -> KeepAlive
+                end,
+                client_id = ClientId,
+                username = Username,
+                password = Password
+            }),
+            ok = mqtt_transport:set_opts(Transport, [{active, once}]),
+            {next_state, {authenticating, From}, StateData#data{
+                transport = Transport,
+                transport_tags = mqtt_transport:get_tags(Transport),
+
+                keep_alive_ping_timeout = KeepAlivePingTimeout,
+                keep_alive_exit_timeout = KeepAliveExitTimeout
+            }, [
+                keep_alive_ping_timer(KeepAlivePingTimeout),
+                keep_alive_exit_timer(KeepAliveExitTimeout)
+            ]};
+        {error, Error} ->
+            {stop_and_reply, normal, [
+                {reply, From, {error, {transport_error, Error}}}
+            ], StateData}
+    end;
+
+disconnected(cast, disconnect, _StateData) ->
+    {stop, normal};
+
+disconnected(EventType, EventContent, StateData) ->
+    handle_event(EventType, EventContent, StateData).
+
+
+%%%% Authenticating
+
+authenticating(From, internal, #mqtt_connack{return_code = 0, session_present = Present}, #data{} = StateData) ->
+    {next_state, connected, StateData, [
+        {reply, From, {ok, Present}}
+    ]};
+
+authenticating(From, internal, #mqtt_connack{return_code = Code}, #data{} = StateData) ->
+    Error = case Code of
+        1 -> unacceptable_protocol;
+        2 -> identifier_rejected;
+        3 -> server_unavailable;
+        4 -> bad_username_or_password;
+        5 -> not_authorized;
+        _ -> Code
+    end,
+    {stop_and_reply, normal, [
+        {reply, From, {error, Error}}
+    ], StateData};
+
+authenticating(_From, cast, disconnect, StateData) ->
+    #data{transport = Transport} = StateData,
+    ok = send_packet(Transport, #mqtt_disconnect{}),
+    {next_state, disconnecting, StateData, [
+        {state_timeout, ?disconnect_timeout, undefined}
+    ]};
+
+authenticating(_From, {timeout, keep_alive_ping}, _, #data{} = StateData) ->
+    #data{transport = Transport, keep_alive_ping_timeout = KeepAlivePingTimeout} = StateData,
+    ok = send_packet(Transport, #mqtt_pingreq{}),
+    {keep_state_and_data, [
+        keep_alive_ping_timer(KeepAlivePingTimeout)
+    ]};
+
+authenticating(From, {timeout, keep_alive_exit}, _, #data{} = StateData) ->
+    {stop_and_reply, normal, [
+        {reply, From, {error, timeout}}
+    ], StateData};
+
+authenticating(_From, EventType, EventContent, StateData) ->
+    handle_event(EventType, EventContent, StateData).
+
+
+%%%% Connected
+
+%%%%%% Subscribe
+connected({call, From}, {subscribe, Topics}, StateData) ->
+    #data{transport = Transport, next_id = PacketId, pending_subscribe = PendingSubscribe} = StateData,
+    ok = send_packet(Transport, #mqtt_subscribe{
+        packet_id = PacketId,
+        topics = Topics
+    }),
+    {keep_state, StateData#data{
+        next_id = PacketId + 1,
+        pending_subscribe = maps:put(PacketId, {[Topic || {Topic, _Qos} <- Topics], From}, PendingSubscribe)
+    }};
+
+connected(internal, #mqtt_suback{packet_id = PacketId, acks = Acks}, StateData) ->
+    #data{pending_subscribe = PendingSubscribe} = StateData,
+    {{Topics, From}, PendingSubscribe1} = maps:take(PacketId, PendingSubscribe),
+    {keep_state, StateData#data{pending_subscribe = PendingSubscribe1}, [
+        {reply, From, {ok, lists:zip(Topics, Acks)}}
+    ]};
+
+%%%%%% Unsubscribe
+connected({call, From}, {unsubscribe, Topics}, StateData) ->
+    #data{transport = Transport, next_id = PacketId, pending_unsubscribe = PendingUnsubscribe} = StateData,
+    ok = send_packet(Transport, #mqtt_unsubscribe{
+        packet_id = PacketId,
+        topics = Topics
+    }),
+    {keep_state, StateData#data{
+        next_id = PacketId + 1,
+        pending_unsubscribe = maps:put(PacketId, From, PendingUnsubscribe)
+    }};
+
+connected(internal, #mqtt_unsuback{packet_id = PacketId}, StateData) ->
+    #data{pending_unsubscribe = PendingUnsubscribe} = StateData,
+    {From, PendingUnsubscribe1} = maps:take(PacketId, PendingUnsubscribe),
+    {keep_state, StateData#data{pending_unsubscribe = PendingUnsubscribe1}, [
+        {reply, From, ok}
+    ]};
+
+%%%%%% Publish
+connected({call, From}, {publish, Topic, Message, Options}, StateData) ->
+    #data{transport = Transport, next_id = PacketId} = StateData,
+    ok = send_packet(Transport, #mqtt_publish{
+        packet_id = PacketId,
+        retain = maps:get(retain, Options, false),
+        topic = Topic,
+        message = Message
+    }),
+    {keep_state, StateData#data{
+        next_id = PacketId + 1
+    }, [
+        {reply, From, ok}
+    ]};
+
+connected(internal, #mqtt_publish{topic = Topic, message = Message, qos = 0}, StateData) ->
+    #data{owner = Owner} = StateData,
+    _ = notify_owner(Owner, {publish, Topic, Message, 0}),
+    keep_state_and_data;
+
+connected(internal, #mqtt_publish{}, _StateData) ->
+    %% TODO: handle QoS 1 & 2
+    exit(not_implemented);
+
+connected(cast, disconnect, StateData) ->
+    #data{transport = Transport} = StateData,
+    ok = send_packet(Transport, #mqtt_disconnect{}),
+    {next_state, disconnecting, StateData, [
+        {state_timeout, ?disconnect_timeout, undefined}
+    ]};
+
+connected({timeout, keep_alive_ping}, _, #data{} = StateData) ->
+    #data{transport = Transport, keep_alive_ping_timeout = KeepAlivePingTimeout} = StateData,
+    ok = send_packet(Transport, #mqtt_pingreq{}),
+    {keep_state_and_data, [
+        keep_alive_ping_timer(KeepAlivePingTimeout)
+    ]};
+
+connected({timeout, keep_alive_exit}, _, #data{} = _StateData) ->
+    {stop, normal};
+
+connected(EventType, EventContent, StateData) ->
+    handle_event(EventType, EventContent, StateData).
+
+
+%%%% Disconnecting
+disconnecting({call, From}, _, _StateData) ->
+    {keep_state_and_data, [
+        {reply, From, {error, disconnected}}
+    ]};
+
+disconnecting(state_timeout, _EventContent, _StateData) ->
+    {stop, normal};
+
+disconnecting(_EventType, _EventContent, _StateData) ->
+    keep_state_and_data.
+
+
+%%%% Any state
+
+handle_event(info, {'DOWN', Monitor, process, Pid, _Info}, #data{owner = Pid, owner_monitor = Monitor} = _StateData) ->
+    {stop, normal};
+
+handle_event(_EventType, _EventContent, _StateData) ->
+    keep_state_and_data.
+
+
+%% Helpers
+
+send_packet(Transport, Packet) ->
+    mqtt_transport:send(Transport, mqtt_packet:encode(Packet)).
+
+keep_alive_ping_timer(Timeout) ->
+    {{timeout, keep_alive_ping}, Timeout, undefined}.
+
+keep_alive_exit_timer(Timeout) ->
+    {{timeout, keep_alive_exit}, Timeout, undefined}.
+
+notify_owner(Owner, Message) ->
+    Owner ! {?MODULE, self(), Message}.
+
 
 decode_packets(Data) ->
     case decode_packets(Data, []) of
@@ -239,342 +469,3 @@ decode_packets(Data, Acc) ->
         {error, _} = Error ->
             Error
     end.
-
-%% @hidden
-terminate(Reason, _, #disconnected{callback = Callback, callback_state = State}) ->
-    Callback:terminate(Reason, State);
-terminate(Reason, _, #connected{callback = Callback, callback_state = State}) ->
-    Callback:terminate(Reason, State).
-
-%% @hidden
-code_change(Vsn, State, #disconnected{} = Data, Extra) ->
-    #disconnected{callback = Callback, callback_state = CallbackState} = Data,
-    case Callback:code_change(Vsn, CallbackState, Extra) of
-        {ok, CallbackState1} ->
-            {ok, State, Data#disconnected{callback_state = CallbackState1}};
-        Other ->
-            Other
-    end;
-code_change(Vsn, State, #connected{} = Data, Extra) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    case Callback:code_change(Vsn, CallbackState, Extra) of
-        {ok, CallbackState1} ->
-            {ok, State, Data#connected{callback_state = CallbackState1}};
-        Other ->
-            Other
-    end.
-
-
-%% States
-
-%%%% Disconnected
-
-disconnected(internal, connect, Data) ->
-    #disconnected{options = Options, callback = Callback, callback_state = CallbackState} = Data,
-    #options{
-        transport = {TransportType, Host, Port, TransportOpts, ConnectTimeout},
-        protocol = Protocol,
-        username = Username,
-        password = Password,
-        client_id = ClientId,
-        clean_session = CleanSession,
-        last_will = LastWill,
-        keep_alive = KeepAlive
-    } = Options,
-
-    case mqtt_transport:open(TransportType, Host, Port, TransportOpts, ConnectTimeout) of
-        {ok, Transport} ->
-            Connect = #mqtt_connect{
-                protocol_name = Protocol,
-                protocol_level = 4,
-                last_will = LastWill,
-                clean_session = CleanSession,
-                keep_alive = KeepAlive,
-                client_id = ClientId,
-                username = Username,
-                password = Password
-            },
-            ok = mqtt_transport:set_opts(Transport, [{active, once}]),
-            {next_state, authenticating, send(Connect, #connected{
-                options = Options,
-                callback = Callback,
-                callback_state = CallbackState,
-                transport = Transport,
-                transport_tags =  mqtt_transport:get_tags(Transport),
-                keep_alive_timer = if
-                    KeepAlive > 0 ->
-                        start_timer(KeepAlive * 1000, keep_alive);
-                    KeepAlive =:= 0 ->
-                        undefined
-                end,
-                keep_alive_exit_timer = if
-                    KeepAlive > 0 ->
-                        start_timer(KeepAlive * 1500, keep_alive_exit);
-                    KeepAlive =:= 0 ->
-                        undefined
-                end
-            })};
-        {error, Error} ->
-            handle_disconnect(Error, Data)
-    end;
-
-disconnected(info, {timeout, Ref, reconnect}, #disconnected{reconnect_timer = {timer, Ref, reconnect, _}} = Data) ->
-    {keep_state, Data#disconnected{reconnect_timer = undefined}, {next_event, internal, connect}};
-
-disconnected({call, From}, _, Data) ->
-    {keep_state, Data, {reply, From, {error, disconnected}}};
-
-disconnected(EventType, EventContent, Data) ->
-    handle_event(EventType, EventContent, Data).
-
-%%%% Authenticating
-
-authenticating(internal, #mqtt_connack{return_code = 0, session_present = Present}, Data) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    case Callback:handle_connect(Present, CallbackState) of
-        {ok, CallbackState1} ->
-            {next_state, connected, Data#connected{callback_state = CallbackState1}};
-        {ok, CallbackState1, Actions} ->
-            {next_state, connected, handle_actions(Actions, Data#connected{callback_state = CallbackState1})};
-        {stop, Reason} ->
-            {stop, Reason}
-    end;
-
-authenticating(internal, #mqtt_connack{return_code = Code}, Data) ->
-    handle_connect_error(Code, Data);
-
-authenticating({call, _}, _, Data) ->
-    {keep_state, Data, postpone};
-
-authenticating(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
-    {keep_state, send(#mqtt_pingreq{}, Data)};
-
-authenticating(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
-    handle_disconnect(keep_alive_timeout, Data);
-
-authenticating(EventType, EventContent, Data) ->
-    handle_event(EventType, EventContent, Data).
-
-
-%%%% Connected
-
-connected(internal, #mqtt_publish{topic = Topic, message = Message, qos = 0}, Data) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    handle_callback_result(Callback:handle_publish(Topic, Message, CallbackState), Data);
-
-connected(internal, #mqtt_publish{}, _Data) ->
-    %% TODO: handle QoS 1 & 2
-    exit(not_implemented);
-
-connected(internal, #mqtt_suback{packet_id = Id, acks = Acks}, Data) ->
-    #connected{pending_subscriptions = Pending} = Data,
-    case maps:take(Id, Pending) of
-        {Topics, Pending1} ->
-            handle_suback(lists:zip(Topics, Acks), Data#connected{pending_subscriptions = Pending1});
-        error ->
-            {keep_state, Data}
-    end;
-
-connected(internal, #mqtt_unsuback{}, Data) ->
-    {keep_state, Data};
-
-connected({call, Call}, From, Data) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    handle_callback_result(Callback:handle_call(Call, From, CallbackState), Data);
-
-connected(cast, Cast, Data) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    handle_callback_result(Callback:handle_cast(Cast, CallbackState), Data);
-
-connected(info, {timeout, Ref, keep_alive}, #connected{keep_alive_timer = {timer, Ref, keep_alive, _}} = Data) ->
-    {keep_state, send(#mqtt_pingreq{}, Data)};
-
-connected(info, {timeout, Ref, keep_alive_exit}, #connected{keep_alive_exit_timer = {timer, Ref, keep_alive_exit, _}} = Data) ->
-    handle_disconnect(keep_alive_timeout, Data);
-
-connected(info, Info, Data) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    handle_callback_result(Callback:handle_info(Info, CallbackState), Data);
-
-connected(EventType, EventContent, Data) ->
-    handle_event(EventType, EventContent, Data).
-
-
-%% Extra handlers
-
-handle_event(internal, #mqtt_pingresp{}, _Data) ->
-    keep_state_and_data;
-
-handle_event(_, _, _Data) ->
-    keep_state_and_data.
-
-handle_connect_error(Code, Data) ->
-    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer, keep_alive_exit_timer = KeepAliveExitTimer} = Data,
-    _ = stop_timer(KeepAliveTimer),
-    _ = stop_timer(KeepAliveExitTimer),
-    _ = mqtt_transport:close(Transport),
-
-    Error = case Code of
-        1 -> unacceptable_protocol;
-        2 -> identifier_rejected;
-        3 -> server_unavailable;
-        4 -> bad_username_or_password;
-        5 -> not_authorized;
-        _ -> {error, Code}
-    end,
-    case Callback:handle_connect_error(Error, CallbackState) of
-        {reconnect, {backoff, Min, Max}, CallbackState1} ->
-            _ = mqtt_transport:close(Transport),
-            {next_state, disconnected, #disconnected{
-                options = Options,
-                callback = Callback,
-                callback_state = CallbackState1,
-                failures = 1,
-                reconnect_timer = start_timer(backoff(0, Min, Max), reconnect)
-            }};
-        {stop, _} = Stop ->
-            Stop
-    end.
-
-handle_disconnect(Error, #connected{} = Data) ->
-    #connected{options = Options, callback = Callback, callback_state = CallbackState, transport = Transport, keep_alive_timer = KeepAliveTimer, keep_alive_exit_timer = KeepAliveExitTimer} = Data,
-    _ = stop_timer(KeepAliveTimer),
-    _ = stop_timer(KeepAliveExitTimer),
-    _ = mqtt_transport:close(Transport),
-
-    case Callback:handle_disconnect(Error, CallbackState) of
-        {reconnect, {backoff, Min, Max}, CallbackState1} ->
-            {next_state, disconnected, #disconnected{
-                options = Options,
-                callback = Callback,
-                callback_state = CallbackState1,
-                failures = 1,
-                reconnect_timer = start_timer(backoff(0, Min, Max), reconnect)
-            }};
-        {stop, _} = Stop ->
-            Stop
-    end;
-
-handle_disconnect(Error, #disconnected{} = Data) ->
-    #disconnected{callback = Callback, callback_state = CallbackState, failures = Failures} = Data,
-    case Callback:handle_connect_error({transport_error, Error}, CallbackState) of
-        {reconnect, {backoff, Min, Max}, CallbackState1} ->
-            {keep_state, Data#disconnected{
-                callback_state = CallbackState1,
-                failures = Failures + 1,
-                reconnect_timer = start_timer(backoff(Failures, Min, Max), reconnect)
-            }};
-        {stop, _} = Stop ->
-            Stop
-    end.
-
-handle_suback(Acks, Data) ->
-    handle_suback(Acks, [], Data).
-
-handle_suback([{Topic, Ack} | Rest], ActionsAcc, #connected{} = Data) ->
-    #connected{callback = Callback, callback_state = CallbackState} = Data,
-    case Callback:handle_subscribe_result(Topic, Ack, CallbackState) of
-        {ok, CallbackState1} ->
-            handle_suback(Rest, ActionsAcc, Data#connected{callback_state = CallbackState1});
-        {ok, CallbackState1, Actions} ->
-            handle_suback(Rest, [Actions | ActionsAcc], Data#connected{callback_state = CallbackState1});
-        {stop, Reason} ->
-            {stop, Reason}
-    end;
-handle_suback([], ActionsAcc, #connected{} = Data) ->
-    {keep_state, handle_actions(lists:reverse(ActionsAcc), Data)}.
-
-handle_callback_result(Result, #connected{} = Data) ->
-    case Result of
-        {ok, CallbackState1} ->
-            {keep_state, Data#connected{callback_state = CallbackState1}};
-        {ok, CallbackState1, Actions} ->
-            {keep_state, handle_actions(Actions, Data#connected{callback_state = CallbackState1})};
-        {stop, Reason} ->
-            {stop, Reason}
-    end.
-
-
-%% Actions
-
-handle_actions(Actions, #connected{} = Data) when is_list(Actions) ->
-    lists:foldl(fun handle_actions/2, Data, Actions);
-handle_actions({reply, From, Reply}, Data) ->
-    gen_statem:reply(From, Reply),
-    Data;
-handle_actions({publish, Topic, Message}, #connected{} = Data) ->
-    handle_action_publish(Topic, Message, 0, false, Data);
-handle_actions({publish, Topic, Message, Options}, #connected{} = Data) ->
-    QoS = maps:get(qos, Options, 0),
-    Retain = maps:get(retain, Options, false),
-    handle_action_publish(Topic, Message, QoS, Retain, Data);
-handle_actions({subscribe, Topic}, #connected{} = Data) ->
-    handle_action_subscribe([{Topic, 0}], Data);
-handle_actions({subscribe, Topic, QoS}, #connected{} = Data) ->
-    handle_action_subscribe([{Topic, QoS}], Data);
-handle_actions({unsubscribe, Topic}, #connected{} = Data) ->
-    handle_action_unsubscribe([Topic], Data).
-
-handle_action_publish(Topic, Message, 0, Retain, Data) ->
-    send(#mqtt_publish{
-        retain = Retain,
-        topic = Topic,
-        message = Message
-    }, Data);
-handle_action_publish(_Topic, _Message, _QoS, _Retain, _Data) ->
-    %% TODO: handle QoS 1 & 2
-    exit(not_implemented).
-
-handle_action_subscribe(Topics, Data) ->
-    #connected{next_id = Id, pending_subscriptions = Pending} = Data,
-    send(#mqtt_subscribe{
-        packet_id = Id,
-        topics = Topics
-    }, Data#connected{
-        next_id = Id + 1,
-        pending_subscriptions = maps:put(Id, [Topic || {Topic, _Qos} <- Topics], Pending)
-    }).
-
-handle_action_unsubscribe(Topics, Data) ->
-    #connected{next_id = Id} = Data,
-    send(#mqtt_unsubscribe{
-        packet_id = Id,
-        topics = Topics
-    }, Data#connected{next_id = Id + 1}).
-
-
-%% Helpers
-
-send(Packet, Data) ->
-    #connected{transport = Transport} = Data,
-    case mqtt_transport:send(Transport, mqtt_packet:encode(Packet)) of
-        ok ->
-            Data;
-        Error ->
-            throw(handle_disconnect(Error, Data))
-    end.
-
--spec start_timer(non_neg_integer(), Tag) -> timer(Tag) when Tag :: term().
--type timer(Tag) :: {timer, reference(), Tag, MilliSecs :: non_neg_integer()}.
-start_timer(MilliSecs, Tag) ->
-    Ref = erlang:start_timer(MilliSecs, self(), Tag),
-    {timer, Ref, Tag, MilliSecs}.
-
--spec stop_timer(timer(term()) | undefined) -> undefined.
-stop_timer(undefined) ->
-    undefined;
-stop_timer({timer, Ref, _, _}) ->
-    _ = erlang:cancel_timer(Ref),
-    undefined.
-
--spec restart_timer(timer(Tag) | undefined) -> timer(Tag) | undefined when Tag :: term().
-restart_timer(undefined) ->
-    undefined;
-restart_timer({timer, Ref, Tag, MilliSecs}) ->
-    _ = erlang:cancel_timer(Ref),
-    start_timer(MilliSecs, Tag).
-
--spec backoff(non_neg_integer(), non_neg_integer(), non_neg_integer()) -> non_neg_integer().
-backoff(Failures, Min, Max) ->
-    Interval = 1000 * trunc(math:pow(2, Failures)),
-    max(Min, min((rand:uniform(Interval) - 1), Max)).

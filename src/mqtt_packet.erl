@@ -1,3 +1,4 @@
+%% @private
 -module(mqtt_packet).
 -export([
     decode/1,
@@ -6,7 +7,8 @@
 -export_type([
     packet/0,
     packet_id/0,
-    qos/0
+    qos/0,
+    topic/0
 ]).
 
 
@@ -27,6 +29,7 @@
     | #mqtt_pingresp{}
     | #mqtt_disconnect{}.
 -type packet_id() :: 0..65535.
+-type topic() :: iodata().
 -type qos() :: 0 | 1 | 2.
 
 

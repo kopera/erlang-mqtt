@@ -3,53 +3,51 @@ defmodule MQTT.Client.IntegrationTest do
   @moduledoc false
 
   use ExUnit.Case
-  alias MQTT.TestClient
+  alias MQTT.Client
 
   @tag :external
   test "Client should handle publish and subscribe" do
-    Process.register self(), :test_client
-
-    {:ok, pid} = TestClient.start_link(
-      %{:transport => {:tcp,
-          %{:host => "localhost"}},
-      })
-    assert_receive {:connected, false}
+    {:ok, connection, false} = Client.connect(%{
+      transport: {:tcp, %{host: "localhost"}}
+    })
 
     topic = "/my/data/topic"
+    message = "Hello"
 
-    TestClient.subscribe(pid, topic)
-    assert_receive {:subscribed, ^topic}
+    {:ok, [{^topic, 0}]} = Client.subscribe(connection, [{topic, 0}])
+    :ok = Client.publish(connection, topic, message)
 
-    TestClient.publish(pid, topic, "Hello")
-    assert_receive {:publish, ^topic, "Hello"}
+    assert_receive {:mqtt_client, ^connection, {:publish, ^topic, ^message, _}}
 
+    :ok = Client.disconnect(connection)
   end
 
   @tag :external
   test "Client should support Last Will and Testament" do
-    Process.register self(), :test_client
-
     lwt_topic = "/last/will"
-    {:ok, pid1} = TestClient.start_link(%{
-        last_will: %{
-          topic: lwt_topic,
-          message: "Goodbye cruel World!",
-          qos: 0,
-          retain: false
-        }
+    lwt_message = "Goodbye cruel World!"
+
+    {:ok, connection1, false} = Client.connect(%{
+      transport: {:tcp, %{host: "localhost"}},
+      last_will: %{
+        topic: lwt_topic,
+        message: lwt_message,
+        qos: 0,
+        retain: false
+      }
     })
-    assert_receive {:connected, false}
 
-    {:ok, pid2} = TestClient.start_link(%{})
-    assert_receive {:connected, false}
+    {:ok, connection2, false} = Client.connect(%{
+      transport: {:tcp, %{host: "localhost"}}
+    })
 
-    TestClient.subscribe(pid2, lwt_topic)
-    assert_receive {:subscribed, ^lwt_topic}
+    {:ok, [{lwt_topic, _}]} = Client.subscribe(connection2, [lwt_topic])
+    :gen_statem.stop(connection1)
 
-    :gen_fsm.stop(pid1)
+    assert_receive {:mqtt_client, ^connection2, {:publish, ^lwt_topic, ^lwt_message, _}}
 
-    assert_receive {:publish, ^lwt_topic, "Goodbye cruel World!"}
-
+    :ok = Client.disconnect(connection1)
+    :ok = Client.disconnect(connection2)
   end
 
 end

@@ -1,18 +1,22 @@
+sudo: true
+
 language: elixir
 elixir:
-  - 1.4.2
+  - 1.6.1
 otp_release:
-  - 19.2
-sudo: true
+  - 20.2.3
+
 before_install:
   - sudo add-apt-repository ppa:mosquitto-dev/mosquitto-ppa -y
   - sudo apt-get -qq update
   - sudo apt-get install -y mosquitto
+
 before_script:
   - mix local.rebar --force
   - mix local.hex --force
   - mix deps.get --test-only
+
 script:
   - mix test --include external
   - mix credo
-  - mix dialyze
+  - mix dialyzer
