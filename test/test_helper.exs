@@ -1,2 +1,2 @@
-ExUnit.configure exclude: [:external, :skip]
+ExUnit.configure exclude: [:skip]
 ExUnit.start()

@@ -5,7 +5,11 @@ defmodule MQTT.Client.IntegrationTest do
   use ExUnit.Case
   alias MQTT.Client
 
-  @tag :external
+  setup do
+    server = start_supervised!(TestServer.ranch_listner())
+    %{server: server}
+  end
+
   test "Client should handle publish and subscribe" do
     {:ok, connection, false} = Client.connect(%{
       transport: {:tcp, %{host: "localhost"}}
@@ -22,7 +26,6 @@ defmodule MQTT.Client.IntegrationTest do
     :ok = Client.disconnect(connection)
   end
 
-  @tag :external
   test "Client should support Last Will and Testament" do
     lwt_topic = "/last/will"
     lwt_message = "Goodbye cruel World!"
