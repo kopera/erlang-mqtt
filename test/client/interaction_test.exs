@@ -6,8 +6,9 @@ defmodule MQTT.Client.IntegrationTest do
   alias MQTT.Client
 
   setup do
-    server = start_supervised!(TestServer.ranch_listner())
-    %{server: server}
+    ranch_sup = start_supervised!(TestServer.ranch_sup())
+    ranch_listner_sup = start_supervised!(TestServer.ranch_listner_sup())
+    %{ranch_sup: ranch_sup, ranch_listner_sup: ranch_listner_sup}
   end
 
   test "Client should handle publish and subscribe" do

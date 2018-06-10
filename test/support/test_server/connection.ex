@@ -28,8 +28,8 @@ defmodule TestServer.Connection do
     {:ok, state}
   end
 
-  def handle_subscribe(_topic, _qos, state) do
-    {:ok, :failed, state}
+  def handle_subscribe(topic, qos, state) do
+    {:ok, qos, state}
   end
 
   def handle_unsubscribe(_topic, state) do
