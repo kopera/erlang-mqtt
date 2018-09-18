@@ -5,7 +5,7 @@ defmodule MQTT.Mixfile do
     [
       app: :mqtt,
       name: "MQTT",
-      version: "0.3.0",
+      version: "0.3.1",
       elixir: "~> 1.6",
       package: package(),
       description: "Erlang/Elixir low level MQTT protocol implementation",
@@ -42,9 +42,9 @@ defmodule MQTT.Mixfile do
 
   defp deps do
     [
-      {:ex_doc, "~> 0.18.3", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.19.1", only: :dev, runtime: false},
       {:dialyxir, "~> 0.5.1", only: [:dev, :test], runtime: false},
-      {:credo, "~> 0.8.10", only: [:dev, :test], runtime: false}
+      {:credo, "~> 0.10.1", only: [:dev, :test], runtime: false}
     ]
   end
 end
