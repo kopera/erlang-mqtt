@@ -382,4 +382,4 @@ encode_acks([QoS | Rest], Acc) when is_integer(QoS), QoS >= 0, QoS =< 2 ->
 encode_acks([failed | Rest], Acc) ->
     encode_acks(Rest, [<<128:8>> | Acc]);
 encode_acks([], Acc) ->
-    Acc.
+    lists:reverse(Acc).
