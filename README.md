@@ -14,12 +14,14 @@ MQTT Protocol library for Erlang/Elixir. This library provides the low level bui
 ### Example Erlang client usage
 
 ```erlang
-{:ok, Connection, false} = mqtt_client:connect(#{
+mqtt_client_sup:start_link(),
+
+{ok, Connection, false} = mqtt_client:connect(#{
     transport => {tcp, #{host => "localhost"}}
 }),
 
 Topic = <<"/test">>,
-{:ok, [{Topic, 0}]} = mqtt_client:subscribe(Connection, [{topic, 0}]),
+{ok, [{Topic, 0}]} = mqtt_client:subscribe(Connection, [{topic, 0}]),
 
 ok = mqtt_client:publish(Connection, Topic, <<"Hello">>),
 receive
