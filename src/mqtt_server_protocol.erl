@@ -181,6 +181,8 @@ connecting(#mqtt_connect{protocol_level = Level} = Connect, Protocol) when Level
 connecting(#mqtt_connect{protocol_level = _}, Protocol) ->
     stop_timer(Protocol#protocol.exit_timer),
     {stop, normal, [encode_send(#mqtt_connack{return_code = 1})]};
+connecting(#mqtt_disconnect{}, _Protocol) ->
+    {stop, normal, []};
 connecting(_, Protocol) ->
     stop_timer(Protocol#protocol.exit_timer),
     {stop, protocol_error, []}.
@@ -193,7 +195,9 @@ connected(#mqtt_subscribe{packet_id = Id, topics = Topics}, Protocol) ->
 connected(#mqtt_unsubscribe{packet_id = Id, topics = Topics}, Protocol) ->
     handle_unsubscribe(Id, Topics, Protocol);
 connected(#mqtt_pingreq{}, Protocol) ->
-    {ok, Protocol, [encode_send(#mqtt_pingresp{})]}.
+    {ok, Protocol, [encode_send(#mqtt_pingresp{})]};
+connected(#mqtt_disconnect{}, _Protocol) ->
+    {stop, normal, []}.
 
 
 handle_publish(_Id, Topic, Message, #{qos := 0} = Opts, #protocol{} = Protocol) ->
