@@ -14,7 +14,7 @@ MQTT Protocol library for Erlang/Elixir. This library provides the low level bui
 ### Example Erlang client usage
 
 ```erlang
-ok = application:start(mqtt),
+ok = application:ensure_all_started(mqtt),
 
 {ok, Connection, false} = mqtt_client:connect(#{
     transport => {tcp, #{host => "localhost"}}
