@@ -257,7 +257,7 @@ disconnected({call, From}, {connect, Opts}, #data{} = StateData) ->
                 clean_session = CleanSession,
                 keep_alive = case KeepAlive of
                     infinity -> 0;
-                    _ -> KeepAlive
+                    _ -> KeepAlive div 1000
                 end,
                 client_id = ClientId,
                 username = Username,
