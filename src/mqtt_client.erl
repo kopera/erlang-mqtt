@@ -33,7 +33,7 @@
     transport_tags :: mqtt_transport:tags() | undefined,
     buffer = <<>> :: binary(),
 
-    next_id = 0 :: mqtt_packet:packet_id(),
+    next_id = 1 :: mqtt_packet:packet_id(),
     pending_subscribe = #{} :: #{mqtt_packet:packet_id() => {[Topic :: iodata()], gen_statem:from()}},
     pending_unsubscribe = #{} :: #{mqtt_packet:packet_id() => gen_statem:from()},
 
@@ -340,7 +340,7 @@ connected({call, From}, {subscribe, Topics}, StateData) ->
         topics = Topics
     }),
     {keep_state, StateData#data{
-        next_id = PacketId + 1,
+        next_id = next_id(PacketId),
         pending_subscribe = maps:put(PacketId, {[Topic || {Topic, _Qos} <- Topics], From}, PendingSubscribe)
     }};
 
@@ -359,7 +359,7 @@ connected({call, From}, {unsubscribe, Topics}, StateData) ->
         topics = Topics
     }),
     {keep_state, StateData#data{
-        next_id = PacketId + 1,
+        next_id = next_id(PacketId),
         pending_unsubscribe = maps:put(PacketId, From, PendingUnsubscribe)
     }};
 
@@ -380,7 +380,7 @@ connected({call, From}, {publish, Topic, Message, Options}, StateData) ->
         message = Message
     }),
     {keep_state, StateData#data{
-        next_id = PacketId + 1
+        next_id = next_id(PacketId)
     }, [
         {reply, From, ok}
     ]};
@@ -438,6 +438,11 @@ handle_event(_EventType, _EventContent, _StateData) ->
 
 
 %% Helpers
+
+next_id(Id) when Id < 65535 ->
+    Id + 1;
+next_id(_Id) ->
+    1.
 
 send_packet(Transport, Packet) ->
     mqtt_transport:send(Transport, mqtt_packet:encode(Packet)).
